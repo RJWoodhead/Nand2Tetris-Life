@@ -409,7 +409,7 @@ def evaluate(s:str, checkonly: bool=False) -> int:
                 return p1 >> p2
 
             case other:
-                raise Exception(f'Unimplemented expression operator [{op}]')
+                raise Exception(f'Unimplemented expression operator [{s[oploc]}]')
 
     elif is_constant(s):
         return constant(s)
