@@ -6,7 +6,6 @@
 # some handy symbol tables are produced
 #
 # Improvements over base assembler implementation:
-#
 # 
 # 0b,0x,0o (boolean,hex,octal) and 'x' character constants.
 #
@@ -51,8 +50,6 @@
 # \ line continuation character (handy for defining large blocks of data).
 #
 # Internal symbols are all prefixed by __ -- don't use them!
-#
-# TODO: stronger typing, update to use more recent python features like match?
 
 import os
 import argparse
@@ -62,6 +59,7 @@ DEBUG = False               # Debug output flag
 
 Values = Dict[str, int]     # Name:Values pairs, for example in symbol tables
 Operation = Dict[str, Any]  # An assembler operation, typically one per non-comment line.
+Line = Tuple[int, str]      # Line number, line pair
 
 # Various sets used in parsing
 
@@ -130,8 +128,8 @@ symbols: Values = {
 
 }
 
-# Keep some lists of symbols of particular types. This lets us print a nicely formatted symbol table
-# at the end of assembly.
+# Keep some lists of symbols of particular types. This lets us print
+# a nicely formatted symbol table at the end of assembly.
 
 predefined_symbols: List[str] = [k for k in symbols.keys()]
 address_labels: List[str] = []
@@ -358,7 +356,7 @@ def evaluate(s:str, checkonly: bool=False) -> int:
     # everything to the left of it first!
 
     oploc = max([s.rfind(c) for c in OPERATORS])
-
+    
     if oploc != -1:
         if s[oploc] in UNARYOPERATORS:
             if oploc > 0:
@@ -366,39 +364,53 @@ def evaluate(s:str, checkonly: bool=False) -> int:
                     oploc -= 1
             else:
                 uval = evaluate(s[1:], checkonly)
-                op = s[oploc]
 
-                if op == '-':
-                    return -1*uval
-                elif op == '+':
-                    return uval
-                elif op == '~':
-                    return ~uval
+                match s[oploc]:
+
+                    case '-':
+                        return -uval
+
+                    case '+':
+                        return uval
+
+                    case '~':
+                        return ~uval
 
         p1 = evaluate(s[0:oploc], checkonly)
-        op = s[oploc]
         p2 = evaluate(s[oploc+1:], checkonly)
 
-        if op == '+':
-            return p1 + p2
-        elif op == '-':
-            return p1 - p2
-        elif op == '*':
-            return p1 * p2
-        elif op == '/':
-            return p1 // p2
-        elif op == '%':
-            return p1 % p2
-        elif op == '&':
-            return p1 & p2
-        elif op == '|':
-            return p1 | p2
-        elif op == '<':
-            return p1 << p2
-        elif op == '>':
-            return p1 >> p2
-        else:
-            raise Exception(f'Unimplemented expression operator [{op}]')
+        match s[oploc]:
+
+            case '+':
+                return p1 + p2
+
+            case '-':
+                return p1 - p2
+
+            case '*':
+                return p1 * p2
+
+            case '/':
+                return p1 // p2
+
+            case '%':
+                return p1 % p2
+
+            case '&':
+                return p1 & p2
+
+            case '|':
+                return p1 | p2
+
+            case '<':
+                return p1 << p2
+
+            case '>':
+                return p1 >> p2
+
+            case other:
+                raise Exception(f'Unimplemented expression operator [{op}]')
+
     elif is_constant(s):
         return constant(s)
     elif is_symbol(s):
@@ -424,7 +436,8 @@ def is_expression(s: str) -> bool:
 
 # Parse a line into an Operation dictionary. Rather than use a rigid class to hold all the
 # information we glean from parsing, a name:value dictionary is used. It's more flexible and
-# is good enough for the task at hand (and was easier to hack together quickly).
+# is good enough for the task at hand (and was easier to hack together quickly). Also, the
+# original code was written before python types hints were a thing.
 # 
 # Operation cTypes are:
 #
@@ -432,7 +445,7 @@ def is_expression(s: str) -> bool:
 #
 # line = (line_number, line) tuple.
 
-def operation(line:Tuple[int, str]) -> Operation:
+def operation(line: Line) -> Operation:
 
     o = line[1]
 
@@ -511,112 +524,116 @@ def operation(line:Tuple[int, str]) -> Operation:
             else:
                 return {'cType': 'E', 'line': line, 'error': 'Multiple =''s in operation'}
 
-# Generate the code for an Operation and add it. If we actually get to this point,
-# the code is error-free.
+# Generate the code for an Operation, add it to the operation, and return the modified object.
+# If we actually get to this point, the code is error-free.
 
-def codegen(o:Operation) -> Operation:
+def codegen(o: Operation) -> Operation:
 
-    if o['cType'] == 'A':   # @-Instruction
-        if 'constant' in o:
-            av = constant(o['constant'])
-        elif 'symbol' in o:
-            av = symbols[o['symbol']]
-        else:
-            try:
-                av = evaluate(o['expression'])
-            except ZeroDivisionError:
-                o['error'] = 'Divide by 0 error in expression'
-                av = 0
-            except Exception as oops:
-                o['error'] = str(oops)
-                av = 0
-            if (av < -16384) or (32767 < av):
-                o['warning'] = '@expression out of -16384..32767 range; lower 15 bits used'
-        o['code'] = av & 0b0111111111111111
-    elif o['cType'] == 'C': # C-Instruction
-        c = CINSTR
-        oc = o['comp']
-        od = o['dest']
-        oj = o['jump']
-        if oc in COMPS:
-            c += COMPS[oc]
-        else:
-            o['error'] = 'Unknown alu operation ' + oc
-            return o
-        if od in DESTS:
-            c += DESTS[od]
-        else:
-            o['error'] = 'Unknown destination ' + od
-            return o
-        if oj in JMPS:
-            c += JMPS[oj]
-        else:
-            o['error'] = 'Unknown jump ' + oj
-            return o
-        o['code'] = c
-    elif o['cType'] == 'K': # Our new special format
-        c = CINSTR
-        oc = o['comp']
-        od = o['dest']
-        oj = o['jump']
+    match o['cType']:
 
-        if oc.startswith('!(') or oc.startswith('~('):
-            c += NOTALU
-            if oc.endswith(')'):
-                oc = oc[2:-1]
+        case 'A':   # @-Instruction
+            if 'constant' in o:
+                av = constant(o['constant'])
+            elif 'symbol' in o:
+                av = symbols[o['symbol']]
             else:
-                o['error'] = 'No closing parenthesis on custom ALU operation'
+                try:
+                    av = evaluate(o['expression'])
+                except ZeroDivisionError:
+                    o['error'] = 'Divide by 0 error in expression'
+                    av = 0
+                except Exception as oops:
+                    o['error'] = str(oops)
+                    av = 0
+                if (av < -16384) or (32767 < av):
+                    o['warning'] = '@expression out of -16384..32767 range; lower 15 bits used'
+            o['code'] = av & 0b0111111111111111
+
+        case 'C': # C-Instruction
+            c = CINSTR
+            oc = o['comp']
+            od = o['dest']
+            oj = o['jump']
+            if oc in COMPS:
+                c += COMPS[oc]
+            else:
+                o['error'] = 'Unknown alu operation ' + oc
                 return o
-        else:
-            c += ALU
+            if od in DESTS:
+                c += DESTS[od]
+            else:
+                o['error'] = 'Unknown destination ' + od
+                return o
+            if oj in JMPS:
+                c += JMPS[oj]
+            else:
+                o['error'] = 'Unknown jump ' + oj
+                return o
+            o['code'] = c
+        
+        case 'K': # Our new special format
+            c = CINSTR
+            oc = o['comp']
+            od = o['dest']
+            oj = o['jump']
 
-        # The following code works because no valid operation symbol is a substring of the head
-        # of another symbol, which is very convenient.
+            if oc.startswith('!(') or oc.startswith('~('):
+                c += NOTALU
+                if oc.endswith(')'):
+                    oc = oc[2:-1]
+                else:
+                    o['error'] = 'No closing parenthesis on custom ALU operation'
+                    return o
+            else:
+                c += ALU
 
-        xop = [(XOPS[x], x) for x in XOPS if oc.startswith(x)]
+            # The following code works because no valid operation symbol is a substring of the head
+            # of another symbol, which is very convenient. Of course, if that changes...
 
-        if len(xop) == 1:
-            c += xop[0][0]
-            oc = oc[len(xop[0][1]):]
-        else:
-            o['error'] = 'Unknown custom ALU operation X-operation'
-            return o
+            xop = [(XOPS[x], x) for x in XOPS if oc.startswith(x)]
 
-        func = [(FUNCS[f], f) for f in FUNCS if oc.startswith(f)]
+            if len(xop) == 1:
+                c += xop[0][0]
+                oc = oc[len(xop[0][1]):]
+            else:
+                o['error'] = 'Unknown custom ALU operation X-operation'
+                return o
 
-        if len(func) == 1:
-            c += func[0][0]
-            oc = oc[len(func[0][1]):]
-        else:
-            o['error'] = 'Unknown custom ALU operation function'
-            return o
+            func = [(FUNCS[f], f) for f in FUNCS if oc.startswith(f)]
 
-        yop = [(YOPS[y], y) for y in YOPS if oc.startswith(y)]
+            if len(func) == 1:
+                c += func[0][0]
+                oc = oc[len(func[0][1]):]
+            else:
+                o['error'] = 'Unknown custom ALU operation function'
+                return o
 
-        if len(yop) == 1:
-            c += yop[0][0]
-            oc = oc[len(yop[0][1]):]
-        else:
-            o['error'] = 'Unknown custom ALU operation X-operation'
-            return o
+            yop = [(YOPS[y], y) for y in YOPS if oc.startswith(y)]
 
-        if oc != '':
-            o['error'] = 'Extra symbols in custom ALU operation'
-            return o
+            if len(yop) == 1:
+                c += yop[0][0]
+                oc = oc[len(yop[0][1]):]
+            else:
+                o['error'] = 'Unknown custom ALU operation X-operation'
+                return o
 
-        if od in DESTS:
-            c += DESTS[od]
-        else:
-            o['error'] = 'Unknown destination ' + od
-            return o
+            if oc != '':
+                o['error'] = 'Extra symbols in custom ALU operation'
+                return o
 
-        if oj in JMPS:
-            c += JMPS[oj]
-        else:
-            o['error'] = 'Unknown jump ' + oj
-            return o
+            if od in DESTS:
+                c += DESTS[od]
+            else:
+                o['error'] = 'Unknown destination ' + od
+                return o
 
-        o['code'] = c
+            if oj in JMPS:
+                c += JMPS[oj]
+            else:
+                o['error'] = 'Unknown jump ' + oj
+                return o
+
+            o['code'] = c
 
     return o
 
@@ -671,8 +688,8 @@ def print_symbols(symbols: Values, valid: List[str], title: str, byname: bool):
 
     num_cols = (num_symbols + num_rows - 1) // num_rows
   
-    # Format the symbols nicely; could be done in the final print list comprehension but done
-    # ahead of time for clarity
+    # Format the symbols nicely; could be done in the final print list comprehension
+    # but is done ahead of time for clarity.
 
     formatted_symbols = [f'{s:{max_width}} {symbols[s]:5}' for s in valid_symbols]
  
@@ -690,8 +707,8 @@ def print_symbols(symbols: Values, valid: List[str], title: str, byname: bool):
 
     print()
 
-# The actual assembler! It's a bit on the long side for a function, but it is a very linear process so
-# I think that's acceptable.
+# The actual assembler! It's a bit on the long side for a function,
+# but it is a very linear process so I think that's acceptable.
 
 def avengers_assemble(fname: str, print_symbol_table: bool):
 
@@ -734,8 +751,8 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
     if lines[-1][1].endswith('\\'):
         ops[-1]['error'] = 'Last line in the file contains a line-continuation character (\\).'
 
-    # Check for explicit reference to dunder symbols and include warning(s), and also check to see if
-    # we have to insert initialization code.
+    # Check for explicit reference to dunder symbols and include warning(s),
+    # and also check to see if we have to insert initialization code.
 
     init_needed = False
 
@@ -745,7 +762,9 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
         init_needed = init_needed or 'init' in op
 
     # If we do have initialization to do, we have to prepend the jump to the init code and set up a symbol for where
-    # the init code will actually go.
+    # the init code will actually go. Because we add this code before we determine the address of each line of code,
+    # the symbol table will be populated correctly. We can't add the actual initialization code until after the
+    # symbol table is complete, because we need to know the values being stored in order to generate optimal code.
 
     if init_needed:
         ops = [{'cType': 'A', 'expression': '__INIT', 'line': (-1, '@__INIT // Jump to Initializer'),},
@@ -762,7 +781,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
 
     # Populate the symbol table. in pass 1, we handle the () instructions
 
-    pc = 0          # program counter
+    pc = 0  # Program counter
 
     for o in ops:
         ct = o['cType']
@@ -788,7 +807,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
     
     # Symbol table pass 2, handle the # defines
 
-    nextvar = 16    # where to allocate next variable
+    nextvar = 16    # Locations 0-15 are reserved, so 16 is the first available
 
     for o in ops:
         ct = o['cType']
@@ -850,7 +869,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
         print()
     
     # If we have any errors at this point, don't bother to do any more work,
-    # else generate the instructions that perform all our initializations
+    # else generate the instructions that perform all our initializations.
 
     errors = [o for o in ops if 'error' in o]
 
@@ -865,10 +884,10 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                     try:
                         val = evaluate(expr)
                         val = val if val >= 0 else 65536+val    # convert to 16-bit unsigned Values
-                        if val in [0, 1]:                       # Values is a HACK constant.
+                        if val in [0, 1]:                       # Values is a HACK constant
                             initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (-2, f'@{symbol}+{offset}')})
                             initops.append({'cType': 'C', 'dest': 'M', 'comp': f'{val}', 'jump': 'NULL', 'line': (-2, f'M={val}')})
-                        elif val == 65535:                      # Values is -1.
+                        elif val == 65535:                      # Values is -1
                             initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (-2, f'@{symbol}+{offset}')})
                             initops.append({'cType': 'C', 'dest': 'M', 'comp': '-1', 'jump': 'NULL', 'line': (-2, f'M=-1')})
                         elif val < 32768:                       # 15-bit Values
