@@ -7,7 +7,7 @@
 #
 # Improvements over base assembler implementation:
 # 
-# 0b,0x,0o (boolean,hex,octal) and 'x' character constants.
+# 0b,0x,0o (boolean,hex,octal) and "x" or 'x' character constants.
 #
 # Simple expression arithmetic using constants and symbols w/parenthesis
 # for precedence (but note that it doesn't handle */ vs +- operator
@@ -34,7 +34,7 @@
 #
 # Alternate operator for NOT (~) can be used in place of ! if so desired.
 #
-# Support for the undocumented NAND (^) and NOR (_) operators, as well as the -2 operation.
+# Support for the undocumented NAND (^) and NOR (_) operators, as well as the line_number operation.
 #
 #   Unfortunately, the CPU emulator does not emulate these extra instructions. :(
 #
@@ -50,6 +50,8 @@
 # \ line continuation character (handy for defining large blocks of data).
 #
 # Internal symbols are all prefixed by __ -- don't use them!
+#
+# TODO: Implement precedence in parser.
 
 import os
 import argparse
@@ -59,7 +61,7 @@ DEBUG = False               # Debug output flag
 
 Values = Dict[str, int]     # Name:Values pairs, for example in symbol tables
 Operation = Dict[str, Any]  # An assembler operation, typically one per non-comment line.
-Line = Tuple[int, str]      # Line number, line pair
+Line = Tuple[int, str, str] # Line number, line, original (unmunged) line
 
 # Various sets used in parsing
 
@@ -67,7 +69,7 @@ SYMBOLCHARS = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345678
 DECIMALCHARS = set('0123456789')
 OPERATORS = set('-+/*%&|~<>')
 UNARYOPERATORS = set('-+~')
-QUOTES = set('"''')
+QUOTES = set('"\'')
 
 # The global symbol table, initialized with all the default constants
 
@@ -133,7 +135,7 @@ symbols: Values = {
 
 predefined_symbols: List[str] = [k for k in symbols.keys()]
 address_labels: List[str] = []
-declared_Valuess: List[str] = []
+declared_values: List[str] = []
 declared_variables: List[str] = []
 
 # Constants used in building instructions
@@ -223,7 +225,7 @@ COMPS: Values = {
 
     # extra possibly useful instructions
 
-    '-2':   0b0111110000000,
+    'line_number':   0b0111110000000,
 
     'D^A':  0b0000001000000,    # D nand A
     'A^D':  0b0000001000000,
@@ -295,7 +297,7 @@ def constant(s:str) -> int:
 
     if s == '':
         return 0
-    elif len(s) == 3 and s[0] in QUOTES and s[2] in QUOTES:
+    elif len(s) == 3 and s[0] in QUOTES and s[2] == s[0]:
         return ord(s[1])
     else:
         try:
@@ -309,6 +311,9 @@ def constant(s:str) -> int:
 # Determine if a string is a constant
 
 def is_constant(s: str) -> bool:
+
+    if s == '':
+        return False
 
     try:
         _ = constant(s)
@@ -324,7 +329,7 @@ def is_constant(s: str) -> bool:
 def evaluate(s:str, checkonly: bool=False) -> int:
 
     # If we get here and there is nothing, then it's a unary negation in the
-    # middle of the expression
+    # middle of the expression.
 
     if s == '':
         raise Exception('Unary negation can only be used as first element in an expression or parenthetical expression')
@@ -357,7 +362,17 @@ def evaluate(s:str, checkonly: bool=False) -> int:
 
     oploc = max([s.rfind(c) for c in OPERATORS])
     
+    # If we don't find an operator, we either have a constant or a symbol.
+
     if oploc != -1:
+
+        # If we find a unary operator and it's not the first character of the string,
+        # then either we have a case of a<op><b> or a<op><unary op><b>. In both cases,
+        # we fall through and handle the non-unary operator, but in the latter case
+        # we have to step back 1 character. Since this function is recursive, the
+        # end result is that we'll only ever actually evaluate a unary operator
+        # when it is the only operator (and first character in) the subexpression.
+
         if s[oploc] in UNARYOPERATORS:
             if oploc > 0:
                 if s[oploc-1] in OPERATORS:
@@ -375,6 +390,9 @@ def evaluate(s:str, checkonly: bool=False) -> int:
 
                     case '~':
                         return ~uval
+
+        # We only get here if it's a non-unary operator,
+        # so we can just evaluate both sides.
 
         p1 = evaluate(s[0:oploc], checkonly)
         p2 = evaluate(s[oploc+1:], checkonly)
@@ -410,7 +428,6 @@ def evaluate(s:str, checkonly: bool=False) -> int:
 
             case other:
                 raise Exception(f'Unimplemented expression operator [{s[oploc]}]')
-
     elif is_constant(s):
         return constant(s)
     elif is_symbol(s):
@@ -714,17 +731,26 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
 
     oname = fname[:-4] + '.hack'
 
-    # Read in the file, get back (line number,line) tuples
+    # Read in the file, get back (line number, line, original line) tuples.
+    # We keep the original line around for use in errors and warnings.
 
-    lines = [(i+1, l) for i, l in enumerate(open(fname))]
+    lines = [(i+1, l, l) for i, l in enumerate(open(fname))]
 
-    # Kill all the whitespace (evil trick)
+    # Kill all the whitespace (evil trick). This makes parsing MUCH easier.
+    # However, there is one wrinkle. Since we have implemented character
+    # constants, and since one of them is ' ', we have to get sneaky and
+    # replace these with dunder placeholders so they don't get smashed,
+    # and then fix them after smashing all the whitespace. It also handles
+    # bad constants with a double-space, but gives up after that as they
+    # are going to error out anyways later on.
 
-    lines = [(l[0], ''.join(l[1].split())) for l in lines]
+    lines = [(l[0], l[1].replace('\' ', '\'__SS__').replace('" ', '"__SS__').replace('__SS__ ', '__SS____SS__'), l[2]) for l in lines]
+    lines = [(l[0], ''.join(l[1].split()), l[2]) for l in lines]
+    lines = [(l[0], l[1].replace('__SS__', ' '), l[2]) for l in lines]
 
     # Kill all the comments
 
-    lines = [(l[0], l[1].split('//')[0]) for l in lines]
+    lines = [(l[0], l[1].split('//')[0], l[2]) for l in lines]
 
     # Kill all the blank lines
 
@@ -737,7 +763,9 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
         if lines[cur_line][1].endswith('\\'):
             line = lines[cur_line][1]
             line = line[:-1] + lines[cur_line+1][1]
-            lines[cur_line] = (lines[cur_line][0], line)
+            original_line = lines[cur_line][2]
+            original_line = original_line[:-1] + lines[cur_line+1][2]
+            lines[cur_line] = (lines[cur_line][0], line, original_line)
             del lines[cur_line+1]
         else:
             cur_line = cur_line + 1
@@ -833,7 +861,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                         cv = 1
                     if ct == 'D':
                         symbols[sym] = cv
-                        declared_Valuess.append(sym)
+                        declared_values.append(sym)
                     else:
                         symbols[sym] = nextvar
                         nextvar = nextvar + cv
@@ -880,31 +908,31 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
         for o in ops:
             if 'init' in o:
                 symbol = o['symbol']
+                line_number = o['line'][0]
                 for offset, expr in enumerate(o['init']):
                     try:
                         val = evaluate(expr)
                         val = val if val >= 0 else 65536+val    # convert to 16-bit unsigned Values
                         if val in [0, 1]:                       # Values is a HACK constant
-                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (-2, f'@{symbol}+{offset}')})
-                            initops.append({'cType': 'C', 'dest': 'M', 'comp': f'{val}', 'jump': 'NULL', 'line': (-2, f'M={val}')})
+                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
+                            initops.append({'cType': 'C', 'dest': 'M', 'comp': f'{val}', 'jump': 'NULL', 'line': (line_number, f'M={val}')})
                         elif val == 65535:                      # Values is -1
-                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (-2, f'@{symbol}+{offset}')})
-                            initops.append({'cType': 'C', 'dest': 'M', 'comp': '-1', 'jump': 'NULL', 'line': (-2, f'M=-1')})
+                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
+                            initops.append({'cType': 'C', 'dest': 'M', 'comp': '-1', 'jump': 'NULL', 'line': (line_number, f'M=-1')})
                         elif val < 32768:                       # 15-bit Values
-                            initops.append({'cType': 'A', 'expression': f'{val}', 'line': (-2, f'@{val}')})
-                            initops.append({'cType': 'C', 'dest': 'D', 'comp': 'A', 'jump': 'NULL', 'line': (-2, 'D=A')})
-                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (-2, f'@{symbol}+{offset}')})
-                            initops.append({'cType': 'C', 'dest': 'M', 'comp': 'D', 'jump': 'NULL', 'line': (-2, 'M=D')})
+                            initops.append({'cType': 'A', 'expression': f'{val}', 'line': (line_number, f'@{val}')})
+                            initops.append({'cType': 'C', 'dest': 'D', 'comp': 'A', 'jump': 'NULL', 'line': (line_number, 'D=A')})
+                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
+                            initops.append({'cType': 'C', 'dest': 'M', 'comp': 'D', 'jump': 'NULL', 'line': (line_number, 'M=D')})
                         else:                                   # 16-bit Values
-                            initops.append({'cType': 'C', 'dest': 'D', 'comp': '-1', 'jump': 'NULL', 'line': (-2, 'D=-1')})
-                            initops.append({'cType': 'A', 'expression': f'{65535-val}', 'line': (-2, f'@{65535-val}')})
-                            initops.append({'cType': 'C', 'dest': 'D', 'comp': 'D-A', 'jump': 'NULL', 'line': (-2, 'D=D-A')})
-                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (-2, f'@{symbol}+{offset}')})
-                            initops.append({'cType': 'C', 'dest': 'M', 'comp': 'D', 'jump': 'NULL', 'line': (-2, 'M=D')})
-                    except ZeroDivisionError:
-                        initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (-2, f'@{symbol}+{offset} (ERROR)'), 'error': 'Divide by 0 error in expression'})
+                            initops.append({'cType': 'C', 'dest': 'D', 'comp': '-1', 'jump': 'NULL', 'line': (line_number, 'D=-1')})
+                            initops.append({'cType': 'A', 'expression': f'{65535-val}', 'line': (line_number, f'@{65535-val}')})
+                            initops.append({'cType': 'C', 'dest': 'D', 'comp': 'D-A', 'jump': 'NULL', 'line': (line_number, 'D=D-A')})
+                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
+                            initops.append({'cType': 'C', 'dest': 'M', 'comp': 'D', 'jump': 'NULL', 'line': (line_number, 'M=D')})
                     except Exception as ex:
-                        initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (-2, f'@{symbol}+{offset} (ERROR)'), 'error': str(ex)})
+                        bad_var = symbol + ('' if len(o['init']) == 1 else f'[{offset}]')
+                        initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': o['line'], 'error': f'Invalid constant initialization expression [{expr}] provided for {bad_var}'})
 
         # Return to caller code
 
@@ -931,8 +959,8 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
             print_symbols(symbols, predefined_symbols, 'Predefined Symbols', byname=True)
             print_symbols(symbols, address_labels, 'Branch Addresses', byname=True)
             print_symbols(symbols, address_labels, 'Branch Addresses', byname=False)
-            print_symbols(symbols, declared_Valuess, 'Explicitly Defined Valuess', byname=True)
-            print_symbols(symbols, declared_Valuess, 'Explicitly Defined Valuess', byname=False)
+            print_symbols(symbols, declared_values, 'Explicitly Defined Values', byname=True)
+            print_symbols(symbols, declared_values, 'Explicitly Defined Values', byname=False)
             print_symbols(symbols, declared_variables, 'Variables', byname=True)
             print_symbols(symbols, declared_variables, 'Variables', byname=False)
 
@@ -946,16 +974,16 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
     if errors:
         for e in errors:
             print('Error in line ' + str(e['line'][0]) + ': ' + e['error'])
-            print('\t' + e['line'][1].strip('\n'))
+            print('\t' + e['line'][2].strip('\n'))
         for w in warnings:
             print('Warning in line ' + str(w['line'][0]) + ': ' + w['warning'])
-            print('\t' + w['line'][1].strip('\n'))
+            print('\t' + w['line'][2].strip('\n'))
         print(f'Assembly aborted -- {len(errors)} error(s) and {len(warnings)} detected.')
         exit(1)
     else:
         for w in warnings:
             print('Warning in line ' + str(w['line'][0]) + ': ' + w['warning'])
-            print('\t' + w['line'][1].strip('\n'))
+            print('\t' + w['line'][2].strip('\n'))
         prog = ['{:016b}'.format(o['code']) for o in ops if 'code' in o]
         
         if DEBUG:

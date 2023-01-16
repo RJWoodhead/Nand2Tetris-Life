@@ -27,7 +27,7 @@ Also included is an improved HACK assembler.
 
 The original HACK assembler is fine for the small programs typically written during the NAND2Tetris course, but it lacks some features that are useful when writing larger programs. My improved assembler adds the following functionality:
 
-* 0b,0x,0o (boolean,hex,octal) and 'x' character constants.
+* 0b,0x,0o (boolean,hex,octal) and "x" character constants.
 
 * Simple expression arithmetic using constants and symbols w/parenthesis for precedence (but note that it doesn't handle */ vs +- operator precedence, it's first come first served).
 
