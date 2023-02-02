@@ -285,7 +285,6 @@ board([
 ]
 )
 
-
 print("Guard cell update code (unwrapped)")
 
 wrap(0,2176)

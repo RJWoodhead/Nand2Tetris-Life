@@ -1,17 +1,23 @@
 # coding: utf-8
 
+#---------------------------------------------------------------------------------------
+# (C)2023 Robert Woodhead. Creative Commons Attribution License
+#---------------------------------------------------------------------------------------
+
 # Usage: python3 assember.py [-s] {asm input file}
 #
 # Generates .hack output file of the same name; if -s switch is used,
-# some handy symbol tables are produced
+# some handy symbol tables are produced.
 #
 # Improvements over base assembler implementation:
 # 
 # 0b,0x,0o (boolean,hex,octal) and "x" or 'x' character constants.
 #
+# Predefined constants for useful things like arrow and function keys.
+#
 # Simple expression arithmetic using constants and symbols w/parenthesis
 # for precedence (but note that it doesn't handle */ vs +- operator
-# precedence, it's first come first served).
+# precedence, it's first-come first-served).
 #
 # $symbol to declare a variable before use (allocates a variable slot for it).
 #
@@ -20,6 +26,9 @@
 # $symbol=[value] declares a variable and initializes it.
 #
 # $symbol(size)=Values,Values, ... ,Values does the same thing for an array.
+#
+# $symbol(*)=filename treats the specified file as a monochrome bitmap and extracts the size and
+# initialization values from it. Gee, I wonder why this got implemented?
 #
 # If the symbol is \_ (ie: $\_) an anonymous variable or variable block is
 # allocated, so you can do stuff like $_(5)=1,2,3,4,5.
@@ -51,19 +60,20 @@
 #
 # Internal symbols are all prefixed by __ -- don't use them!
 #
-# TODO: Implement precedence in parser.
 
 import os
 import argparse
 from typing import List, Dict, Tuple, Any
-
-DEBUG = False               # Debug output flag
+from PIL import Image
 
 Values = Dict[str, int]     # Name:Values pairs, for example in symbol tables
 Operation = Dict[str, Any]  # An assembler operation, typically one per non-comment line.
 Line = Tuple[int, str, str] # Line number, line, original (unmunged) line
 
-# Various sets used in parsing
+DEBUG = False               # Debug output flag
+MAXMEM = 16384              # Limit of ram space
+
+# Various sets used in parsing.
 
 SYMBOLCHARS = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.$:')
 DECIMALCHARS = set('0123456789')
@@ -71,7 +81,7 @@ OPERATORS = set('-+/*%&|~<>')
 UNARYOPERATORS = set('-+~')
 QUOTES = set('"\'')
 
-# The global symbol table, initialized with all the default constants
+# The global symbol table, initialized with all the default constants.
 
 symbols: Values = {
 
@@ -131,20 +141,22 @@ symbols: Values = {
 }
 
 # Keep some lists of symbols of particular types. This lets us print
-# a nicely formatted symbol table at the end of assembly.
+# a nicely formatted symbol table at the end of assembly. We also
+# do a case-insensitivity check to help check for typos.
 
 predefined_symbols: List[str] = [k for k in symbols.keys()]
 address_labels: List[str] = []
 declared_values: List[str] = []
 declared_variables: List[str] = []
+ucase_symbols: List[str] = []
 
-# Constants used in building instructions
+# Constants used in building instructions.
 
-# C instruction template
+# C instruction template.
 
 CINSTR = 0b1110000000000000
 
-# Opcodes for jmps
+# Opcodes for jmps.
 
 JMPS: Values = {
 
@@ -159,7 +171,7 @@ JMPS: Values = {
 
 }
 
-# Opcodes for destinations (3 lsbits for jmps)
+# Opcodes for destinations (3 lsbits for jmps).
 
 DESTS: Values = {
 
@@ -175,7 +187,7 @@ DESTS: Values = {
 
 }
 
-# Opcodes for comps (6 lsbits for jmps and dests)
+# Opcodes for comps (6 lsbits for jmps and dests).
 
 COMPS: Values = {
 
@@ -217,13 +229,13 @@ COMPS: Values = {
     'M&D':  0b1000000000000,
     'M|D':  0b1010101000000,
 
-    # alternate not operator
+    # Alternate not operator.
 
     '~D':   0b0001101000000,
     '~A':   0b0110001000000,
     '~M':   0b1110001000000,
 
-    # extra possibly useful instructions
+    # Extra possibly useful instructions.
 
     'line_number':   0b0111110000000,
 
@@ -235,11 +247,22 @@ COMPS: Values = {
     'D^M':  0b1000001000000,    # D nand M
     'M^D':  0b1000001000000,
     'D_M':  0b1010100000000,    # D nor M
-    'M_D':  0b1010100000000
+    'M_D':  0b1010100000000,
+
+    # Synonyms.
+
+    '0XFFFF':   0b0111010000000,
+    '0X0000':   0b0101010000000,
+    '0X0001':   0b0111111000000,
 
 }
 
-# Precise ALU control variant format
+# Precise ALU control variant format. Implementation note: The code that uses
+# these dictionaries will fail if any entry in a dictionary has entries that
+# have initial substrings that are the same as another entry in the same
+# dictionary. IE: "DerfBork" and "Derf" conflict because the start of
+# "DerfBork" is "Derf". This limitation lets us simply use .startswith()
+# in our matching code.
 
 XOPS: Values = {
 
@@ -274,7 +297,7 @@ FUNCS: Values = {
 NOTALU = 0b0000001000000
 ALU = 0b0000000000000
 
-# Determine if a string meets the criteria for a symbol
+# Determine if a string meets the criteria for a symbol.
 
 def is_symbol(s:str) -> bool:
 
@@ -291,7 +314,7 @@ def is_symbol(s:str) -> bool:
 
     return True
 
-# Evaluate the value of a character or numeric constant
+# Evaluate the value of a character or numeric constant.
 
 def constant(s:str) -> int:
 
@@ -308,7 +331,7 @@ def constant(s:str) -> int:
             else:
                 raise Exception(f'Invalid constant [{s}]')
 
-# Determine if a string is a constant
+# Determine if a string is a constant.
 
 def is_constant(s: str) -> bool:
 
@@ -342,14 +365,13 @@ def evaluate(s:str, checkonly: bool=False) -> int:
     while ploc != -1:
         ploc = s.rfind('(')
         pend = s.find(')', ploc)
-        if pend == -1:      # error, no matching )
+        if pend == -1:
             raise Exception('No matching ) in expression')
         pval = evaluate(s[ploc+1:pend], checkonly)
         s = s[:ploc] + str(pval) + s[pend+1:]
-        # print('After reduction [' + s + ']')
         ploc = s.rfind('(')
 
-    # Check for dangling ) and \
+    # Check for dangling ) and \ symbols.
 
     if s.find(')') != -1:
         raise Exception('Dangling ) in expression')
@@ -391,8 +413,7 @@ def evaluate(s:str, checkonly: bool=False) -> int:
                     case '~':
                         return ~uval
 
-        # We only get here if it's a non-unary operator,
-        # so we can just evaluate both sides.
+        # We only get here if it's a non-unary operator, so we can just evaluate both sides.
 
         p1 = evaluate(s[0:oploc], checkonly)
         p2 = evaluate(s[oploc+1:], checkonly)
@@ -441,7 +462,7 @@ def evaluate(s:str, checkonly: bool=False) -> int:
         raise Exception(f'Cannot parse expression [{s}]')
 
 # Wrapper for evaluate() that catches the exceptions and returns True if there wasn't one,
-# converting evaluate() into a syntax checker
+# converting evaluate() into a syntax checker.
 
 def is_expression(s: str) -> bool:
 
@@ -450,6 +471,24 @@ def is_expression(s: str) -> bool:
         return True
     except Exception as oops:
         return False
+
+# Import a bitmap image, return size,data list tuple. Pack zeros as needed
+# to fit rows into integer number of words.
+
+def import_image(im: Image) -> Tuple[str, List[str]]:
+
+    im = im.convert(mode='1')
+    width, height = im.size
+    word_width = (width+15) // 16
+    words: List[str] = []
+
+    for y in range(0,height):
+
+		# pack 16 pixels into each word, format as binary.
+
+        words = words + [ '0b' + ''.join(['1' if (x+16*w) < width and im.getpixel((x+16*w, y))<128 else '0' for x in range(0,16)]) for w in range(0,word_width)]
+
+    return (str(word_width*height), words)
 
 # Parse a line into an Operation dictionary. Rather than use a rigid class to hold all the
 # information we glean from parsing, a name:value dictionary is used. It's more flexible and
@@ -492,12 +531,20 @@ def operation(line: Line) -> Operation:
             if ')' not in vsize:
                 return {'cType': 'E', 'line': line, 'error': 'Variable definition is missing closing '')'''}
             vsize, vinit = vsize.split(')', 1)
-            if '=' in vinit:
+            if vsize == '*':
+                try:
+                    _, vinit = vinit.split('=')
+                    im = Image.open(vinit)
+                except:
+                    return {'cType': 'E', 'line': line, 'error': f'File [{vinit}] not found, or not image'}
+                vsize, vlist = import_image(im)
+                return {'cType': 'V', 'symbol': vname, 'expression': vsize, 'init': vlist, 'line': line}
+            elif '=' in vinit:
                 _, vinit = vinit.split('=')
                 vlist = vinit.split(',')
                 evsize = evaluate(vsize)
                 if len(vlist) != evsize:
-                    return {'cType': 'E', 'line': line, 'error': f'Variable size ({evsize}) does not match number of Valuess provided ({len(vlist)})'}
+                    return {'cType': 'E', 'line': line, 'error': f'Variable size ({evsize}) does not match number of Values provided ({len(vlist)})'}
             else:
                 vlist = []
             return {'cType': 'V', 'symbol': vname, 'expression': vsize, 'init': vlist, 'line': line}
@@ -505,9 +552,10 @@ def operation(line: Line) -> Operation:
             vname, vinit = o.split('=', 1)
             vlist = vinit.split(',')
             if len(vlist) != 1:
-                return {'cType': 'E', 'line': line, 'error': f'Variable size (1) does not match number of Valuess provided ({len(vlist)})'}
+                return {'cType': 'E', 'line': line, 'error': f'Variable size (1) does not match number of Values provided ({len(vlist)})'}
             else:
-                return {'cType': 'V', 'symbol': vname, 'expression': '1', 'init': vlist, 'line': line}
+                return {'cType': 'V', 'symbol': vname, 'expression': '1', 'init': vlist, 'line': line}	    
+
         else:
             return {'cType': 'V', 'symbol': o, 'expression': '1', 'line': line}
     elif o.startswith('#'):     # Constant declaration
@@ -542,7 +590,7 @@ def operation(line: Line) -> Operation:
                 return {'cType': 'E', 'line': line, 'error': 'Multiple =''s in operation'}
 
 # Generate the code for an Operation, add it to the operation, and return the modified object.
-# If we actually get to this point, the code is error-free.
+# If we actually get to this point, the code has no syntax errors.
 
 def codegen(o: Operation) -> Operation:
 
@@ -654,26 +702,29 @@ def codegen(o: Operation) -> Operation:
 
     return o
 
-# Print out a segment of the symbol table in a nicely formatted way
+# Print out a segment of the symbol table in a nicely formatted way.
 
 def print_symbols(symbols: Values, valid: List[str], title: str, byname: bool):
 
-    # .sort() helper function, permits sorting by value
+    # .sort() helper functions, permits sorting by value or name (case-insensitive).
 
     def byValues(s: str):
         return symbols[s]
 
-    # Filter out the desired symbols
+    def byNames(s: str):
+        return s.upper()
+
+    # Filter out the desired symbols.
 
     valid_symbols = [s for s in symbols.keys() if s in valid]
 
     if not valid_symbols:
         return
 
-    # Sort the symbols
+    # Sort the symbols.
 
     if byname:
-        valid_symbols.sort()
+        valid_symbols.sort(key=byNames)
     else:
         valid_symbols.sort(key=byValues)
 
@@ -682,8 +733,8 @@ def print_symbols(symbols: Values, valid: List[str], title: str, byname: bool):
     num_symbols = len(valid_symbols)
     max_width = max([len(s) for s in valid_symbols])
 
-    # Create the ruler that goes at the top of a column, and the separator
-    # the divides the columns.
+    # Create the ruler that goes at the top of a column,
+    # and the separator the divides the columns.
 
     ruler = '-'*max_width + ' -----'
     separator = ' | '
@@ -701,7 +752,7 @@ def print_symbols(symbols: Values, valid: List[str], title: str, byname: bool):
 
     num_rows = (num_symbols + num_cols - 1) // num_cols
 
-    # Now that we know the number of rows, the number of columns needed may be less than the maximum we can fit
+    # Now that we know the number of rows, the number of columns needed may be less than the maximum we can fit.
 
     num_cols = (num_symbols + num_rows - 1) // num_rows
   
@@ -748,15 +799,15 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
     lines = [(l[0], ''.join(l[1].split()), l[2]) for l in lines]
     lines = [(l[0], l[1].replace('__SS__', ' '), l[2]) for l in lines]
 
-    # Kill all the comments
+    # Kill all the comments.
 
     lines = [(l[0], l[1].split('//')[0], l[2]) for l in lines]
 
-    # Kill all the blank lines
+    # Kill all the blank lines.
 
     lines = [l for l in lines if l[1] != '']
 
-    # Combine extended lines (\ at end of line)
+    # Combine extended lines (\ at end of line).
 
     cur_line = 0
     while cur_line < (len(lines) - 1):
@@ -770,11 +821,11 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
         else:
             cur_line = cur_line + 1
 
-    # Parse the lines into operations
+    # Parse the lines into operations.
 
     ops = [operation(l) for l in lines]
 
-    # Check for a particular edge-case
+    # Check for a particular edge-case.
 
     if lines[-1][1].endswith('\\'):
         ops[-1]['error'] = 'Last line in the file contains a line-continuation character (\\).'
@@ -807,7 +858,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
         print()
         print('Pass 1')
 
-    # Populate the symbol table. in pass 1, we handle the () instructions
+    # Populate the symbol table. in pass 1, we handle the () instructions.
 
     pc = 0  # Program counter
 
@@ -821,9 +872,13 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                 o['error'] = 'Badly formed symbol'
             elif sym in symbols:
                 o['error'] = 'Symbol previously defined'
+            elif sym.upper() in ucase_symbols:
+                o['error'] = 'Symbol previously defined (case-insensitive)'
             else:
                 symbols[sym] = pc
                 address_labels.append(sym)
+                ucase_symbols.append(sym.upper())
+
         elif (ct == 'A') or (ct == 'C'):
             pc += 1
     
@@ -833,9 +888,9 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
         print()
         print('Pass 2')
     
-    # Symbol table pass 2, handle the # defines
+    # Symbol table pass 2, handle the # defines.
 
-    nextvar = 16    # Locations 0-15 are reserved, so 16 is the first available
+    ram = 16    # Locations 0-15 are reserved, so 16 is the first available
 
     for o in ops:
         ct = o['cType']
@@ -850,6 +905,8 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                     o['error'] = 'Badly formed symbol'
                 elif sym in symbols:
                     o['error'] = 'Symbol previously defined'
+                elif sym.upper() in ucase_symbols:
+                    o['error'] = 'Symbol previously defined (case-insensitive)'
                 else:
                     try:
                         cv = evaluate(o['expression'])
@@ -863,9 +920,12 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                         symbols[sym] = cv
                         declared_values.append(sym)
                     else:
-                        symbols[sym] = nextvar
-                        nextvar = nextvar + cv
+                        symbols[sym] = ram
+                        ram = ram + cv
                         declared_variables.append(sym)
+                        if ram > MAXMEM:
+                            o['error'] = 'Out of memory.'
+                    ucase_symbols.append(sym.upper())
 
     if DEBUG:
         for o in ops:
@@ -873,7 +933,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
         print()
         print('Pass 3')
     
-    # Symbol table pass 3, handle the @-instructions
+    # Symbol table pass 3, handle the @-instructions.
 
     for o in ops:
         ct = o['cType']
@@ -887,9 +947,15 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                 elif not is_symbol(sym):
                     o['error'] = 'Badly formed symbol'
                 elif not(sym in symbols):
-                    symbols[sym] = nextvar
-                    nextvar = nextvar + 1
-                    declared_variables.append(sym)
+                    if sym.upper() in ucase_symbols:
+                        o['error'] = 'Symbol previously defined (case-insensitive)'
+                    else:
+                        symbols[sym] = ram
+                        ram = ram + 1
+                        declared_variables.append(sym)
+                        ucase_symbols.append(sym.upper())
+                        if ram > MAXMEM:
+                            o['error'] = 'Out of memory.'
 
     if DEBUG:
         for o in ops:
@@ -934,14 +1000,16 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                         bad_var = symbol + ('' if len(o['init']) == 1 else f'[{offset}]')
                         initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': o['line'], 'error': f'Invalid constant initialization expression [{expr}] provided for {bad_var}'})
 
-        # Return to caller code
+        # Return to caller code.
 
         initops.append({'cType': 'A', 'expression': '__INIT.Ret', 'line': (-3, '@__INIT.Ret')})
         initops.append({'cType': 'C', 'dest': 'NULL', 'comp': '0', 'jump': 'JMP', 'line': (-3, '0;JMP')})
 
-        # Add the initialization code
+        # Add the initialization code, update program counter.
 
         ops = ops + initops
+
+        pc = pc + len(initops)
 
     # If we have any errors at this point, don't bother to do any more work,
     # otherwise generate the code.
@@ -952,15 +1020,15 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
 
         ops = [codegen(o) for o in ops]
 
-        # Print out the various symbol tables
+        # Print out the various symbol tables.
 
         if print_symbol_table:
             print()
             print_symbols(symbols, predefined_symbols, 'Predefined Symbols', byname=True)
             print_symbols(symbols, address_labels, 'Branch Addresses', byname=True)
             print_symbols(symbols, address_labels, 'Branch Addresses', byname=False)
-            print_symbols(symbols, declared_values, 'Explicitly Defined Values', byname=True)
-            print_symbols(symbols, declared_values, 'Explicitly Defined Values', byname=False)
+            print_symbols(symbols, declared_values, 'Constants', byname=True)
+            print_symbols(symbols, declared_values, 'Constants', byname=False)
             print_symbols(symbols, declared_variables, 'Variables', byname=True)
             print_symbols(symbols, declared_variables, 'Variables', byname=False)
 
@@ -969,7 +1037,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
     errors = [o for o in ops if 'error' in o]
     warnings = [o for o in ops if 'warning' in o]
 
-    # Either print the errors, or print the warnings and generate the final binary textfile
+    # Either print the errors, or print the warnings and generate the final binary textfile.
 
     if errors:
         for e in errors:
@@ -998,11 +1066,12 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
             for o in ops:
                 print(o)
 
+        print(f'Program length: {pc}, RAM usage: {ram} (of 16384, {int(ram*100/16384)}%)')
         print('Assembly successful - results written to ' + oname)
         
         exit(0)
 
-# Main level
+# Main level.
 
 if __name__ == '__main__':
 

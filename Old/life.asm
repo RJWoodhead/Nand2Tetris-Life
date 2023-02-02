@@ -69,6 +69,10 @@ $DeadTable(9)=0x0000,0x0000,0x0000,0x8000,0x0000,0x0000,0x0000,0x0000,0x0000
 $Div2(64)=0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,14,14,15,15,\
     16,16,17,17,18,18,19,19,20,20,21,21,22,22,23,23,24,24,25,25,26,26,27,27,28,28,29,29,30,30,31,31
 
+// Table of bitmaps used to blink the cursor (2 cells per word in SCREEN memory)
+
+$BlinkMask(2)=0b0000000000111100,0b0011110000000000
+
 // Table of addresses of starting cells in each row
 
 $Board.Row(32)=Board+67,Board+133,Board+199,Board+265,Board+331,Board+397,Board+463,Board+529,\
@@ -184,34 +188,15 @@ $Undo2(66*34)
 	@Blink.row
 	M = D
 
-// Each word in the screen buffer holds the bits for two adjacent cells. Use
-// the low bit of Life.x to determine which byte of the word is used by the
-// current cell, and create a mask. You can actually get the ALU to compute
-// D = -2 in one operation but the assembler doesn't support it.
+// Each word in the screen buffer holds the bits for two adjacent cells. Do a
+// table lookup to get the desired bitmap.
 
-	D = -1 			// D = 1111 ... 1110
-	D = D - 1
+	D = 1			// D = the low bit of Life.x
 	@Life.x
-	D = D & M 		// D = Life.x with low bit masked off
-
-	@Life.x 		// if low bit set, upper byte contains mask
-	D = D - M
-	@Blink.Upper
-	D ; JNE
-
-(Blink.Lower)
-
-	@60 			// D = 0000 0000 0011 1100
-	D = A
-	@Blink.Xor
-	0 ; JMP
-
-(Blink.Upper)
-
-	@15360 			// D = 0011 1100 0000 0000
-	D = A
-
-(Blink.Xor)
+	D = D & M
+	@BlinkMask		// D = BlinkMask[D]
+	A = D + A
+	D = M
 
 	@Blink.mask 	// Blink.mask = XOR mask of bits to flip
 	M = D
@@ -711,7 +696,7 @@ $Undo2(66*34)
 
 (Key.Buffer.Copy)
 
-	@2244 				// Key.Board.Count = 2244 (Board Size + 1)
+	@2244 				// Key.Board.Count = 2244 (Board Size)
 	D = A
 	@Key.Board.Count
 	M = D
@@ -2282,8 +2267,6 @@ $Undo2(66*34)
 
 (LB.forRow) 		// repeat Load_Board_Row() while (--LB.row > 0)
 
-	@20012
-
 	@LB.forRow.Ret 	// D = Load_Board_Row return address
 	D = A
 
@@ -2317,8 +2300,6 @@ $Undo2(66*34)
 (Load_Board_Row)
 (LBR)
 
-	@20020				// Breakpoint
-
 	@4 					// LBR.word = 4
 	D = A
 	@LBR.word
@@ -2346,8 +2327,6 @@ $Undo2(66*34)
 	@LBR.forWord		// Loop if LB.row > 0
 	D ; JGT
 
-	@20020
-
 	@LB.cell 			// LB.cell = LB.cell + 2
 	M = M + 1
 	M = M + 1
@@ -2364,8 +2343,6 @@ $Undo2(66*34)
 
 (Load_Board_Word)
 (LBW)
-
-	@20030				// Breakpoint
 
 	@16 				// LBW.count = 16 (# of bits to transfer)
 	D = A
@@ -2421,8 +2398,6 @@ $Undo2(66*34)
 
 (Clear_Board)
 (CB)
-
-	@20040			// Breakpoint
 
 	@34*66			// There are 34*66 elements in the board = 2244
 	D = A 			// CB.i is the loop counter
