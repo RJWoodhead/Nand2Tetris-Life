@@ -4,6 +4,8 @@ This is an implementation of Conway's Game of Life for the [NAND2Tetris](https:/
 
 Also included is an improved HACK assembler.
 
+This is a work-in-progresss.
+
 # User Interface
 
 * Arrow keys or QWE/A D/ZXC to move cursor
