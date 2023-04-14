@@ -70,7 +70,7 @@ Values = Dict[str, int]     # Name:Values pairs, for example in symbol tables
 Operation = Dict[str, Any]  # An assembler operation, typically one per non-comment line.
 Line = Tuple[int, str, str] # Line number, line, original (unmunged) line
 
-DEBUG = False               # Debug output flag
+DEBUG = True               # Debug output flag
 MAXMEM = 16384              # Limit of ram space
 
 # Various sets used in parsing.
@@ -969,7 +969,10 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
 
     if not errors and init_needed:
         
-        initops = []
+        initops = []        # The operations needed to perform the initializations.
+        initinfo = []       # List of things we need to initialize.
+
+        # Pass 1 - gather the initialization information into a list of tuples.
 
         for o in ops:
             if 'init' in o:
@@ -979,26 +982,47 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                     try:
                         val = evaluate(expr)
                         val = val if val >= 0 else 65536+val    # convert to 16-bit unsigned Values
-                        if val in [0, 1]:                       # Values is a HACK constant
-                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
-                            initops.append({'cType': 'C', 'dest': 'M', 'comp': f'{val}', 'jump': 'NULL', 'line': (line_number, f'M={val}')})
-                        elif val == 65535:                      # Values is -1
-                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
-                            initops.append({'cType': 'C', 'dest': 'M', 'comp': '-1', 'jump': 'NULL', 'line': (line_number, f'M=-1')})
-                        elif val < 32768:                       # 15-bit Values
-                            initops.append({'cType': 'A', 'expression': f'{val}', 'line': (line_number, f'@{val}')})
-                            initops.append({'cType': 'C', 'dest': 'D', 'comp': 'A', 'jump': 'NULL', 'line': (line_number, 'D=A')})
-                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
-                            initops.append({'cType': 'C', 'dest': 'M', 'comp': 'D', 'jump': 'NULL', 'line': (line_number, 'M=D')})
-                        else:                                   # 16-bit Values
-                            initops.append({'cType': 'C', 'dest': 'D', 'comp': '-1', 'jump': 'NULL', 'line': (line_number, 'D=-1')})
-                            initops.append({'cType': 'A', 'expression': f'{65535-val}', 'line': (line_number, f'@{65535-val}')})
-                            initops.append({'cType': 'C', 'dest': 'D', 'comp': 'D-A', 'jump': 'NULL', 'line': (line_number, 'D=D-A')})
-                            initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
-                            initops.append({'cType': 'C', 'dest': 'M', 'comp': 'D', 'jump': 'NULL', 'line': (line_number, 'M=D')})
+                        initinfo.append((val, symbol, offset, line_number))
                     except Exception as ex:
                         bad_var = symbol + ('' if len(o['init']) == 1 else f'[{offset}]')
                         initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': o['line'], 'error': f'Invalid constant initialization expression [{expr}] provided for {bad_var}'})
+
+        # Sort the initialization information by value; this means that items with the same value will
+        # be initialized in sequence, which permits optimization because the D register doesn't have
+        # to be reset each time. Realized this while giving a lecture at Princeton about the Life
+        # program!
+
+        initinfo.sort()
+
+        # Generate the initialization code
+
+        lastval = -1        # All our initialization values are positive, so this will never match.
+
+        for (val, symbol, offset, line_number) in initinfo:
+            if val in [0, 1]:                       # Values is a HACK constant
+                initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
+                initops.append({'cType': 'C', 'dest': 'M', 'comp': f'{val}', 'jump': 'NULL', 'line': (line_number, f'M={val} // INIT to HACK constant ({val})')})
+            elif val == 65535:                      # Values is -1
+                initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
+                initops.append({'cType': 'C', 'dest': 'M', 'comp': '-1', 'jump': 'NULL', 'line': (line_number, f'M=-1 // INIT to HACK constant ({val})')})
+            else:
+                if val != lastval:                          # Load val into D register
+                    if val == (lastval + 1) and (val != 2): # Can we just increment D (note that we can't if val==2 because D never gets set in the 0 and 1 cases!)?
+                        initops.append({'cType': 'C', 'dest': 'D', 'comp': 'D+1', 'jump': 'NULL', 'line': (line_number, f'D=D+1 // INIT to adjacent value ({val})')})
+                    elif val < 32768:               # 15-bit Values
+                        initops.append({'cType': 'A', 'expression': f'{val}', 'line': (line_number, f'@{val}')})
+                        initops.append({'cType': 'C', 'dest': 'D', 'comp': 'A', 'jump': 'NULL', 'line': (line_number, f'D=A // INIT to 15-bit value ({val})')})
+                    else:                           # 16-bit Values
+                        initops.append({'cType': 'C', 'dest': 'D', 'comp': '-1', 'jump': 'NULL', 'line': (line_number, f'D=-1 // INIT to 16-bit value ({val})')})
+                        initops.append({'cType': 'A', 'expression': f'{65535-val}', 'line': (line_number, f'@{65535-val}')})
+                        initops.append({'cType': 'C', 'dest': 'D', 'comp': 'D-A', 'jump': 'NULL', 'line': (line_number, 'D=D-A')})
+
+                # Store D into correct location
+
+                initops.append({'cType': 'A', 'expression': f'{symbol}+{offset}', 'line': (line_number, f'@{symbol}+{offset}')})
+                initops.append({'cType': 'C', 'dest': 'M', 'comp': 'D', 'jump': 'NULL', 'line': (line_number, 'M=D')})
+
+            lastval = val   # Remember what's in D for next time around the loop
 
         # Return to caller code.
 
