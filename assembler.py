@@ -185,7 +185,7 @@ DESTS: Values = {
     'AM':   0b101000,
     'AD':   0b110000,
     'AMD':  0b111000,
-    'DM':   0b011000,   // Variant versions of above
+    'DM':   0b011000,   # Variant versions of above
     'MA':   0b101000, 
     'DA':   0b110000,
     'ADM':  0b111000,

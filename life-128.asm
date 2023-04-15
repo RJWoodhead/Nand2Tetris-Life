@@ -107,6 +107,11 @@ $Board.Row(64)=Board+131,Board+261,Board+391,Board+521,Board+651,Board+781,Board
 
 $Board(Board_Size)
 
+// Special value that lets us know we've reached the end of the board data. -1 is a value that can
+// never be in the board data.
+
+$BoardEndMark=-1
+
 // We can have as many undo buffers as space permits. Boards are stored in the undo buffers as bitmaps,
 // so we have to compress them when saving and can use the stored board load routine to restore them.
 
@@ -1013,11 +1018,25 @@ $NAND_00.png(*)=Boards/NAND_00.png
 
 (G.1.Bottom)
 
-	@G.cell 					// D,G.cell = G.cell + 1
-	MD = M + 1
-	@Board+Board_Last_Cell+1 	// if (G.cell != First Guard Cell) goto G.1.Top
-	D = D - A
-	@G.1.Top
+// Optimization to speed up the loop. Normally we would just check to see if G.cell has
+// passed the last actual cell in the board. This takes 6 instructions as follows:
+//
+//  @G.cell 					// D,G.cell = G.cell + 1
+//  MD = M + 1
+//	@Board+Board_Last_Cell+1 	// if (G.cell != First Guard Cell after board) goto G.1.Top
+//	D = D - A
+//	@G.1.Top
+//	D ; JNE
+//
+// However, by having a cell with an impossible but easy-to-test value (-1), we can shave
+// off one instruction, at the cost of running the loop for Board_Cols+2 extra iterations.
+// Each iteration is 10 instructions, so it's a win if there are more than 10 rows in our
+// board, which there certainly are!
+
+	@G.cell 					// A,G.cell = G.cell + 1
+	AM = M + 1
+	D = M + 1					// if the special guard cell is -1, then D will now be 0
+	@G.1.Top					// so if D != 0, we are not done.
 	D ; JNE
 
 	// Phase 2: add the counts in the guard cells to their respective border cells
