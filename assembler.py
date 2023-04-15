@@ -70,7 +70,7 @@ Values = Dict[str, int]     # Name:Values pairs, for example in symbol tables
 Operation = Dict[str, Any]  # An assembler operation, typically one per non-comment line.
 Line = Tuple[int, str, str] # Line number, line, original (unmunged) line
 
-DEBUG = True               # Debug output flag
+DEBUG = False               # Debug output flag
 MAXMEM = 16384              # Limit of ram space
 
 # Various sets used in parsing.
@@ -171,7 +171,8 @@ JMPS: Values = {
 
 }
 
-# Opcodes for destinations (3 lsbits for jmps).
+# Opcodes for destinations (3 lsbits for jmps). Variants added
+# so destinations can be specified in any order.
 
 DESTS: Values = {
 
@@ -183,7 +184,15 @@ DESTS: Values = {
     'A':    0b100000,
     'AM':   0b101000,
     'AD':   0b110000,
-    'AMD':  0b111000
+    'AMD':  0b111000,
+    'DM':   0b011000,   // Variant versions of above
+    'MA':   0b101000, 
+    'DA':   0b110000,
+    'ADM':  0b111000,
+    'MAD':  0b111000,
+    'MDA':  0b111000,
+    'DAM':  0b111000,
+    'DMA':  0b111000,
 
 }
 
@@ -237,7 +246,7 @@ COMPS: Values = {
 
     # Extra possibly useful instructions.
 
-    'line_number':   0b0111110000000,
+    '-2':   0b0111110000000,
 
     'D^A':  0b0000001000000,    # D nand A
     'A^D':  0b0000001000000,
