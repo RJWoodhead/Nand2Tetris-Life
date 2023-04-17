@@ -1018,20 +1018,20 @@ $NAND_00.png(*)=Boards/NAND_00.png
 
 (G.1.Bottom)
 
-// Optimization to speed up the loop. Normally we would just check to see if G.cell has
-// passed the last actual cell in the board. This takes 6 instructions as follows:
-//
-//  @G.cell 					// D,G.cell = G.cell + 1
-//  MD = M + 1
-//	@Board+Board_Last_Cell+1 	// if (G.cell != First Guard Cell after board) goto G.1.Top
-//	D = D - A
-//	@G.1.Top
-//	D ; JNE
-//
-// However, by having a cell with an impossible but easy-to-test value (-1), we can shave
-// off one instruction, at the cost of running the loop for Board_Cols+2 extra iterations.
-// Each iteration is 10 instructions, so it's a win if there are more than 10 rows in our
-// board, which there certainly are!
+	// Optimization to speed up the loop. Normally we would just check to see if G.cell has
+	// passed the last actual cell in the board. This takes 6 instructions as follows:
+	//
+	//  @G.cell 					// D,G.cell = G.cell + 1
+	//  MD = M + 1
+	//	@Board+Board_Last_Cell+1 	// if (G.cell != First Guard Cell after board) goto G.1.Top
+	//	D = D - A
+	//	@G.1.Top
+	//	D ; JNE
+	//
+	// However, by having a cell with an impossible but easy-to-test value (-1), we can shave
+	// off one instruction, at the cost of running the loop for Board_Cols+2 extra iterations.
+	// Each iteration is 10 instructions, so it's a win if there are more than 10 rows in our
+	// board, which there certainly are!
 
 	@G.cell 					// A,G.cell = G.cell + 1
 	AM = M + 1
