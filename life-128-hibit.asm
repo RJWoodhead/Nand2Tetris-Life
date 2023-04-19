@@ -1,5 +1,5 @@
 //
-// VERSION 2 - Uses bit 4 to store life cell status
+// VERSION 1 - uses high bit to store cell life status
 //
 // Conway's Game of Life in Hack Assembly language -- https://en.wikipedia.org/wiki/Conway's_Game_of_Life
 //
@@ -18,14 +18,10 @@
 // Typical simple implementations of Life store multiple cells per word and use clever bit-banging techniques
 // to update them in parallel to minimize the number of operations (especially memory fetches on machines
 // where those are expensive). However, the Hack machine architecture is not well suited to these techniques
-// so each cell is implemented as a full word as follows: 0000 0000 000L NNNN, where L is whether the cell is
-// alive or dead, and NNNN is a count of the number of live neighbors. In the first pass, each cell has 1 added
+// so each cell is implemented as a full word; the sign bit contains the state of the cell in the current
+// generation (so live = 1000 ... 0000 and dead = 0000 ... 0000). In the first pass, each cell has 1 added
 // to it for each live neighbor. Then in a second pass, a table lookup is used to convert the neighbor count
-// into the new value for the cell. Finally, the screen is updated to reflect the new board state.
-//
-// The original version of the program used the high (sign) bit to store the cell state because it was easier to
-// check the status of the cell. However, restructuring the cell data in this way permits a tradeoff that makes
-// the first pass slightly slower but speeds up the second pass and the screen update.
+// into the new value for the cell.
 //
 // Keyboard commands:
 //
@@ -74,12 +70,6 @@
 #Board_Words_Per_Row=Board_Cols/16						// # of words per row of compressed board
 #Screen_Words_Per_Row=32								// # of words per scan line on the screen
 
-// Cell values. Note that some code depends on Is_Dead being 0x0000, so in the unlikely event that
-// this ever changes, check for Is_Dead in comments to find the dependencies.
-
-#Is_Alive=0x0010										// Cell status is alive
-#Is_Dead =0x0000										// Cell status is dead
-
 // Key program variables:
 
 $Life.x=64
@@ -88,12 +78,10 @@ $Life.key.repeat=0
 $Life.blink=1
 $Life.speed=32767
 
-// Next Generation update table converts a previous status + neighbor count into a new status
+// Update tables for live and dead cells, giving new state for each number of neighbors.
 
-$UpdateTable(32) = Is_Dead, Is_Dead, Is_Dead,Is_Alive, Is_Dead, Is_Dead, Is_Dead, Is_Dead, \
-				   Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, \
-				   Is_Dead, Is_Dead,Is_Alive,Is_Alive, Is_Dead, Is_Dead, Is_Dead, Is_Dead, \
-				   Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead
+$LiveTable(9)=0x0000,0x0000,0x8000,0x8000,0x0000,0x0000,0x0000,0x0000,0x0000
+$DeadTable(9)=0x0000,0x0000,0x0000,0x8000,0x0000,0x0000,0x0000,0x0000,0x0000
 
 // Divide-by-4 table.
 
@@ -105,33 +93,6 @@ $Div4(128)=0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,6,6,6,6,7,7,7,7,8,8,8
 // Table of bitmaps used to blink the cursor (4 cells per word in SCREEN memory).
 
 $BlinkMask(4)=0b0000000000000110,0b0000000001100000,0b0000011000000000,0b0110000000000000
-
-// Conversion table for creating screen cell blocks. Since our Is_Alive value is 0x0010 and each
-// screen word contains 4 cells, we can shift and combine 4 cell values into a single value with
-// a different bit for each cell (0000 0000 abcd 0000) and then use a table to convert this to
-// the screen representation. Each value is duplicated 16 times so we can use the raw value.
-// It'd be nice if HACK had a right-shift instruction but them's the breaks.
-
-$CellBlocks(256) = \
-	0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, \
-	0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, \
-	0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, \
-	0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, \
-
-	0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, \
-	0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, \
-	0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, \
-	0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, \
-
-	0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, \
-	0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, \
-	0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, \
-	0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, \
-
-	0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, \
-	0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, \
-	0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, \
-	0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF
 
 // Table of addresses of starting cells in each row.
 
@@ -149,9 +110,7 @@ $Board.Row(64)=Board+131,Board+261,Board+391,Board+521,Board+651,Board+781,Board
 $Board(Board_Size)
 
 // Special value that lets us know we've reached the end of the board data. -1 is a value that can
-// never be in the board data, and it's easy to test. If we ever loop through the board and get to
-// this cell, we know we're done. It is slightly faster to check this than check to see if the
-// loop counter has reached the end mark. More details in the actual code.
+// never be in the board data.
 
 $BoardEndMark=-1
 
@@ -265,7 +224,7 @@ $NAND_00.png(*)=Boards/NAND_00.png
 	M = D
 
 // Compute the location in the screen buffer of the current cursor position.
-// There are 32 words per row, and 4 rows per cell. 32*4 = 128. We also skip
+// There are 32 bytes per row, and 4 rows per cell. 32*8 = 128. We also skip
 // a row because we only modify the central 2x2 pixels of a cell. We could
 // use a table for *128 but speed isn't needed here.
 
@@ -904,23 +863,25 @@ $NAND_00.png(*)=Boards/NAND_00.png
     @Cur.Cell       // Save it for later and move to
     AM = D          // A register so we can look at it
 
-    D = M           // Get value of cell. Assumes Is_Dead is 0x0000
-    @Key.Make.Live  // If dead, make alive, and vice-versa
+    D = M           // Get value of cell
+
+    @Key.Toggle.Dead  // If dead, make alive, and vice-versa
     D ; JEQ
 
-(Key.Make.Dead)
+(Key.Toggle.Alive)
 
-    D = 0           // Assumes Is_Dead is 0x0000
+    D = 0           // Dead = 0
     @Cur.Cell       // Address of current cell
     A = M
     M = D           // Update value
 	@Key.Change     // And return
 	0 ; JMP
 
-(Key.Make.Live)
+(Key.Toggle.Dead)
 
-    @Is_Alive		// D = Is_Alive
-    D = A
+    @0x4000         // Alive = 0x8000, but we can't load that value
+    D = A           // so we load 0x4000 and add it twice
+    D = D + A
     @Cur.Cell       // Address of current cell
     A = M
     M = D           // Update value
@@ -1017,15 +978,13 @@ $NAND_00.png(*)=Boards/NAND_00.png
 	@G.cell
 	M = D
 
-(G.1.Top) 					// repeat check_cell until we hit the special end-of-board cell
+(G.1.Top) 					// repeat check_cell until ++G.cell == Board+8449 (1 past last cell)
 
-	@Is_Alive				// If Is_Alive & [G.cell] = 0, skip to bottom of loop (it's dead)
-	D = A
-	@G.cell
+	@G.cell 				// if [G.cell] >= 0, skip to bottom of loop (it's dead)
 	A = M
-	D = D & M
+	D = M
 	@G.1.Bottom
-	D ; JEQ
+	D ; JGE
 
 	@G.cell 				// A=[G.cell]-(Board_Cols+3) (top-left neighbor)
 	D = M
@@ -3432,32 +3391,65 @@ $NAND_00.png(*)=Boards/NAND_00.png
 	@G.cell
 	M = D
 
-	@G.cell			// D = G.cell (preparation for loop, so D is in the same state
-	D = M 			// as it will be on subsequent iterations
-	
-(G.3.Top) 			// Repeat until we hit our special guard cell (value = -1)
+(G.3.Top) 			// repeat ... until ++G.cell = Board+8449 (guard cell after last live cell)
 
-	A = D			// D = [D]+1 (because D = G.cell at this point)
-	D = M + 1		// If we are at the guard cell (-1) then D is now 0
-	@Paint_Board	// and in that case, we jump directly to the Paint_Board
-	D ; JEQ			// routine, which then returns to *our* caller.
+	@G.cell 		// D = [G.cell]
+	A = M
+	D = M
 
-	@UpdateTable-1	// Now get the new value for the cell from the UpdateTable,
-	A = A + D 		// but since we added 1 to the value, we offset by 1 to
-	D = M 			// compensate for this and get the correct value.
+	@G.3.Live 		// if D < 0 it's a live cell
+	D ; JLT
 
-	@G.cell			// [G.cell] = D
+(G.3.Dead)
+
+	@G.3.Dead.Next 	// if D == 0 break. This is an efficiency hack; instead of paying a flat 6 instructions
+	D ; JEQ 		// per cell, we can pay 2 if it has no neighbors and 8 if it does. This is a win if
+					// the fast path happens more than 25% of the time, which it does.
+
+	@DeadTable 		// D = DeadTable[D]
+	A = A + D
+	D = M
+
+	@G.cell 		// [G.cell] = D
 	A = M
 	M = D
 
-	D = A + 1		// G.cell++
-	@G.cell
-	M = D			// At this point, D = G.cell
+(G.3.Dead.Next)					// End of loop
 
-// The above loop can be unrolled as many times as we like, saving 2 instructions
-// per loop unroll.
+	@G.cell 					// D = ++G.cell
+	MD = M + 1
 
-	@G.3.Top		// Continue with the loop. At this point, D = G.cell
+	@Board+Board_Last_Cell+1 	// if G.cell within range, loop
+	D = D - A
+	@G.3.Top
+	D ; JLT
+
+(G.3.Live)
+
+	@0b1111 		// D = LiveTable[D & 1111] (we need to mask off the sign bit)
+	D = D & A
+	@LiveTable
+	A = A + D
+	D = M
+
+	@G.cell 		// [G.cell] = D
+	A = M
+	M = D
+
+(G.3.Live.Next)					// End-of-loop code is duplicated to save a jump
+
+	@G.cell 					// D = ++G.cell
+	MD = M + 1
+
+	@Board+Board_Last_Cell+1 	// if G.cell within range, loop
+	D = D - A
+	@G.3.Top
+	D ; JLT
+
+// Jump directly to Paint_Board() without pushing return
+// address on stack. It will return to my caller!
+
+	@Paint_Board
 	0 ; JMP
 
 // Load_Board (LB) function. Expects address of board data loader code in D. Clears the board, unpacks the data,
@@ -3592,21 +3584,10 @@ $NAND_00.png(*)=Boards/NAND_00.png
 
 	M = D + M 			// LBW.bits = LBW.bits << 1 (but D still has original LBW.bits)
 
-	@LBW.forCell.Live	// If sign bit of D is set, set living cell, else dead cell
-	D ; JLT
-
-(LBW.forCell.Dead)		// D = Is_Dead. Assumes Is_Dead = 0
-
-	D = 0
-	@LBW.forCell.Set
-	0 ; JMP
-
-(LBW.forCell.Live)		// D = Is_Alive
-
-	@Is_Alive
-	D = A
-
-(LBW.forCell.Set)
+	@32767				// D = D & 1000 0000 0000 0000
+	D = ! D 			// We have to be tricky to do this because we can't
+	D = D | A 			// load a 16 bit constant. The end result is that the
+	D = ! D 			// sign bit is preserved and everything else is 0!
 
 	@LB.cell 			// [LB.cell] = D
 	A = M
@@ -3752,7 +3733,7 @@ $NAND_00.png(*)=Boards/NAND_00.png
 	D = M
 
 	@SBW.nextCell		// Skip to next if dead cell (0)
-	D ; JEQ				// Assumes Is_Dead = 0
+	D ; JEQ
 
 	@SBW.bits			// SBW.bits++
 	M = M + 1
@@ -3802,11 +3783,11 @@ $NAND_00.png(*)=Boards/NAND_00.png
 	@CB.a
 	M = D
 	
-(CB.Top)			// Repeat Mem[CB.a++] = Is_Dead while (--CB.i > 0) 
+(CB.Top)			// Repeat Mem[CB.a++] = 0 while (--CB.i > 0) 
 
-	@CB.a 			// [CB.a] = Is_Dead
+	@CB.a 			// [CB.a] = 0
 	A = M
-	M = 0			// Assumes Is_Dead = 0
+	M = 0
 	
 	D = A + 1 		// D = CB.a + 1
 	@CB.a 			// CB.a = D
@@ -3900,40 +3881,315 @@ $NAND_00.png(*)=Boards/NAND_00.png
 (Paint_Board_Quad)
 (PBQ)
 
-	// Convert a set of 4 cells into a 16-bit pixel representation. Depends on Is_Alive being 0x0010.
-	// and Is_Dead being 0x0000. The trick is that we shift and add the cell values to get an 8 bit
-	// value 0000 0000 abcd 0000, then do a table lookup to get the pixel representation.
+	// Convert cells into pixels. There are 16 possible cell values, so we use an IF-ladder
+	// to figure out what case we are in, and set D to the correct pixel value.
 
-	D = 0				// Initialize our lookup value
-
-	@PB.cell			// A = PB.cell (address of first cell)
+	@PB.cell 			// D = [PB.cell] (will be negative if cell is alive; 0 if cell is dead)
 	A = M
-
-	D = M 				// D = first cell "a" (0001 0000 or 0000 0000)
-	D = D + M 		    // D = first cell << 1 (0000 0000 00a0 0000)
-
-	@PB.cell			// A, PB.cell = ++PB.cell (address of second cell "b")
-	AM = M + 1
-
-	D = D + M 			// D = 0000 0000 00ab 0000
-	A = D 				// D = D << 1 (0000 0000 0ab0 0000)
-	D = D + A
-
-	@PB.cell			// A, PB.cell = ++PB.cell (address of third cell "c")
-	AM = M + 1
-
-	D = D + M 			// D = 0000 0000 0abc 0000
-	A = D 				// D = D << 1 (0000 0000 abc0 0000)
-	D = D + A
-
-	@PB.cell			// A, PB.cell = ++PB.cell (address of last cell "d")
-	AM = M + 1
-
-	D = D + M 			// D = 0000 0000 abcd 0000
-
-	@CellBlocks			// D = CellBlocks[D] converts to pixel representation
-	A = A + D
 	D = M
+
+	@PBQ.0XXX			// Skip if first pixel is 0
+	D ; JEQ
+
+(PBQ.1XXX) 				// First pixel is set. What about second pixel?
+
+	@PB.cell 			// D = [++PB.cell] (the second cell in the pair)
+	AM = M + 1
+	D = M
+
+	@PBQ.10XX 			// Skip if second pixel is 0
+	D ; JEQ
+
+(PBQ.11XX) 				// Repeat process for third pixel
+
+	@PB.cell 			// D = [++PB.cell]
+	AM = M + 1
+	D = M
+
+	@PBQ.110X
+	D ; JEQ
+
+(PBQ.111X) 				// And finally for last pixel
+
+	@PB.cell 			// D = [++PB.cell]
+	AM = M + 1
+	D = M
+
+	@PBQ.1110
+	D ; JEQ
+
+// In the special case of all four cells set, we can optimize and
+// just paint 0b1111111111111111 (-1) into the four scan lines.
+
+(PBQ.1111)					// All pixels are set
+
+	@Screen_Words_Per_Row	// D = 32 (offset to next scan line)
+	D = A
+	@PB.board				// A = [PB.board]
+	A = M
+	M = -1					// All pixels are set, so we have this optimization
+	A = A + D				// Move to next scan line
+	M = -1					// Paint it as well.
+	A = A + D				// Move to next scan line
+	M = -1					// Paint it as well.
+	A = A + D				// Move to next scan line
+	M = -1					// Paint it as well.
+
+	@PB.board 				// PB.board = PB.board + 1
+	M = M + 1
+
+	@PB.cell 				// PB.cell = PB.cell + 1
+	M = M + 1
+
+// Return to caller.
+
+	@PBR.forQuad.Ret 		// direct jump since this is an inline function call
+	0 ; JMP
+
+(PBQ.1110)					// If the pattern is not all 1's or 0's, we load the appropriate
+							// bit pattern and jump to the generic routine. Note that we
+	@0x0FFF					// need to reverse the bit pattern because of pixel ordering
+	D = A 					// on screen.
+
+	@PBQ.Paint				// Jump to the painter.
+	0 ; JMP
+
+// The rest of the ladder is cut and paste from above with different pixel values.
+
+(PBQ.110X)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.1100
+	D ; JEQ
+
+(PBQ.1101)
+
+	@0xFFFF-0xF0FF			// Because we can't directly set the high bit, we have
+	D = 0xFFFF 				// to do a little bit-fu in half our our cases.
+	D = D - A 
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.1100)
+
+	@0x00FF
+	D = A
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.10XX)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.100X
+	D ; JEQ
+
+(PBQ.101X)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.1010
+	D ; JEQ
+
+(PBQ.1011)
+
+	@0xFFFF-0xFF0F
+	D = 0xFFFF
+	D = D - A 
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.1010)
+
+	@0x0F0F
+	D = A
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.100X)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.1000
+	D ; JEQ
+
+(PBQ.1001)
+
+	@0xFFFF-0xF00F
+	D = 0xFFFF
+	D = D - A 
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.1000)
+
+	@0x000F
+	D = A
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.0XXX)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.00XX
+	D ; JEQ
+
+(PBQ.01XX)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.010X
+	D ; JEQ
+
+(PBQ.011X)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.0110
+	D ; JEQ
+
+(PBQ.0111)
+
+	@0xFFFF-0xFFF0
+	D = 0xFFFF
+	D = D - A 
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.0110)
+
+	@0x0FF0
+	D = A
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.010X)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.0100
+	D ; JEQ
+
+(PBQ.0101)
+
+	@0xFFFF-0xF0F0
+	D = 0xFFFF
+	D = D - A 
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.0100)
+
+	@0x00F0
+	D = A
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.00XX)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.000X
+	D ; JEQ
+
+(PBQ.001X)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.0010
+	D ; JEQ
+
+(PBQ.0011)
+
+	@0xFFFF-0xFF00
+	D = 0xFFFF
+	D = D - A 
+
+	@PBQ.Paint
+	0 ; JMP
+
+(PBQ.0010)
+
+	@0x0F00
+	D = A
+
+	@PBQ.Paint
+	0 ; JMP
+	
+(PBQ.000X)
+
+	@PB.cell
+	AM = M + 1
+	D = M
+
+	@PBQ.0000
+	D ; JEQ
+
+(PBQ.0001)
+
+	@0xFFFF-0xF000
+	D = 0xFFFF
+	D = D - A 
+
+	@PBQ.Paint
+	0 ; JMP
+	
+(PBQ.0000)				// All 0's is another special case
+
+	@Screen_Words_Per_Row
+	D = A
+	@PB.board
+	A = M
+	M = 0
+	A = A + D
+	M = 0
+	A = A + D
+	M = 0
+	A = A + D
+	M = 0
+
+	@PB.board 			// PB.board = PB.board + 1
+	M = M + 1
+
+	@PB.cell 			// PB.cell = PB.cell + 1
+	M = M + 1
+
+// Return to caller.
+
+	@PBR.forQuad.Ret 	// direct jump since this is an inline function call
+	0 ; JMP
 
 // Paint the pixels in D into 4 successive rows of the screen.
 // Loop is unrolled for efficiency.
@@ -3999,6 +4255,10 @@ $NAND_00.png(*)=Boards/NAND_00.png
 
 	@PB.cell
 	M = M + 1
+
+// Inliine function, so we just fall through.
+
+(PBR.forQuad.Ret)
 
 	@PBR.quad 			// PB.pair,D = PB.pair - 1
 	MD = M - 1
