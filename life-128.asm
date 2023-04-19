@@ -88,9 +88,12 @@ $Life.key.repeat=0
 $Life.blink=1
 $Life.speed=32767
 
-// Next Generation update table converts a previous status + neighbor count into a new status
+// Next Generation update table converts a previous status + neighbor count into a new status. It
+// starts with BoardEndMark (-1, defined below) because of a cute little optimization that saves
+// us some checking on the offset loop.
 
-$UpdateTable(32) = Is_Dead, Is_Dead, Is_Dead,Is_Alive, Is_Dead, Is_Dead, Is_Dead, Is_Dead, \
+$UpdateTable(33) = -1, \
+				   Is_Dead, Is_Dead, Is_Dead,Is_Alive, Is_Dead, Is_Dead, Is_Dead, Is_Dead, \
 				   Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, \
 				   Is_Dead, Is_Dead,Is_Alive,Is_Alive, Is_Dead, Is_Dead, Is_Dead, Is_Dead, \
 				   Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead, Is_Dead
@@ -1019,11 +1022,19 @@ $NAND_00.png(*)=Boards/NAND_00.png
 
 (G.1.Top) 					// repeat check_cell until we hit the special end-of-board cell
 
-	@Is_Alive				// If Is_Alive & [G.cell] = 0, skip to bottom of loop (it's dead)
-	D = A
-	@G.cell
+	// Simple check for dead cell ([G.cell] & Is_Alive == 0) is constant 7 instructions.
+	// Short-circuit check is 5 instructions if [G.cell] is 0, 9 if not.
+
+	@G.cell					// D = [G.cell]
 	A = M
-	D = D & M
+	D = M
+
+	@G.1.Bottom				// Short-circuit quick test for 0 (most likely case)
+	D ; JEQ
+
+	@Is_Alive
+	D = D & A
+
 	@G.1.Bottom
 	D ; JEQ
 
@@ -3427,37 +3438,418 @@ $NAND_00.png(*)=Boards/NAND_00.png
 	// Phase 3: use the previous generation state and the count of neighbors to update
 	// the cells.
 
-	@Board+Board_First_Cell // G.cell = first possible active cell
+	@Board+Board_First_Cell-1 // G.cell = cell BEFORE the first possible active cell
 	D = A
 	@G.cell
 	M = D
-
-	@G.cell			// D = G.cell (preparation for loop, so D is in the same state
-	D = M 			// as it will be on subsequent iterations
 	
 (G.3.Top) 			// Repeat until we hit our special guard cell (value = -1)
 
-	A = D			// D = [D]+1 (because D = G.cell at this point)
-	D = M + 1		// If we are at the guard cell (-1) then D is now 0
-	@Paint_Board	// and in that case, we jump directly to the Paint_Board
-	D ; JEQ			// routine, which then returns to *our* caller.
+	@G.cell			// Do a short-circuit check for ++[G.cell] = 0. In this instance
+	AM = M + 1 		// we know the new value is also 0, so we don't need to update
+	D = M			// it, and can fall through to checking the next cell. We can
+	@G.3.Update		// unroll this check as many times as we want to avoid loop
+	D ; JNE			// overhead.
 
-	@UpdateTable-1	// Now get the new value for the cell from the UpdateTable,
-	A = A + D 		// but since we added 1 to the value, we offset by 1 to
-	D = M 			// compensate for this and get the correct value.
+	@G.cell			// Lather, rinse and repeat.
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
 
-	@G.cell			// [G.cell] = D
+	@G.cell			// Lather, rinse and repeat.
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell			// Lather, rinse and repeat.
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell			// Lather, rinse and repeat.
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell			// Lather, rinse and repeat.
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell			// Lather, rinse and repeat.
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell			// Lather, rinse and repeat.
+	AM = M + 1		// OK, you get the idea.
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.cell
+	AM = M + 1
+	D = M
+	@G.3.Update
+	D ; JNE
+
+	@G.3.Top		// At end of unroll, we loop back up and continue
+	0 ; JMP			// to try and short-circuit.
+
+(G.3.Update)
+
+	@UpdateTable+1	// UpdateTable starts with a -1 value followed by all the
+	A = A + D 		// actual new cell values, so we will either get the new
+	D = M			// cell value or -1 if we are at the end of the board.
+
+	@G.cell			// We then update [G.cell] to the new value, which means
+	A = M			// that the end of board cell will get set to -1 which
+	M = D			// is what it always needs to be AND the new cell value
+					// will still be in D. If this value is >= 0, then we
+	@G.3.Top		// are not done processing the cells, and should continue
+	D ; JGE			// looping. Otherwise we fall through to Paint_Board()
+
+// Paint_Board (PB) function; paints the current board onto the screen.
+
+(Paint_Board)
+(PB)
+
+	@SCREEN 				// PB.board = Address of screen
+	D = A
+	@PB.board
+	M = D
+
+	@Board+Board_First_Cell // PB.cell = First real cell of the board
+	D = A
+	@PB.cell
+	M = D
+
+	@Board_Rows 			// PB.row = 64 (number of rows we need to paint)
+	D = A
+	@PB.row
+	M = D
+
+(PB.forRow) 				// Repeat Paint_Board_Row() while (--PB.row > 0)
+
+	@PB.forRow.Ret 			// D = Paint_Board_Row return address
+	D = A
+
+	@SP 					// [SP--] = D (PUSH)
+	A = M
+	M = D
+	@SP
+	M = M - 1
+
+	@Paint_Board_Row 		// Paint_Board_Row()
+	0 ; JMP
+
+(PB.forRow.Ret)
+
+	@PB.row 				// PB.row,D = PB.row - 1
+	MD = M - 1
+	
+	@PB.forRow 				// Loop if PB.row > 0
+	D ; JGT
+
+// Return to caller.
+
+	@SP 					// Jump to [++SP]
+	AM = M + 1
+	A = M
+	0 ; JMP
+
+// Paint_Board_Row(): Paint a single row (128 cells) onto the screen. We use an 4x4 matrix of pixels
+// for each cell, so four cells fit into each word of pixels (16 pixels/word), and each row is
+// replicated 4 times. On exit, PB.board points to the first word of pixels for the next row of
+// cells, and PB.cell points to the first cell of the next row.
+
+(Paint_Board_Row)
+(PBR)
+
+	@Board_Cols/4 		// PBR.quad = 32 (number of quads of cells we need to paint)
+	D = A
+	@PBR.quad
+	M = D
+
+(PBR.forQuad) 			// repeat Paint_Board_Quad() while (--PBR.quad > 0)
+
+// Paint_Board_Quad(): paint a quad of cells [PB.cell] ... [PB.cell+3] onto the screen at word
+// [PB.board]. Repeat for 4 screen rows, then update PB.cell and PB.board for the next
+// iteration.
+//
+// This code is executed so much that all sorts of optimizations are warranted, including
+// inserting it here as an inlined function call to avoid the call-return overhead. This
+// sucks a bit for readability.
+
+(Paint_Board_Quad)
+(PBQ)
+
+	// Convert a set of 4 cells into a 16-bit pixel representation. Depends on Is_Alive being 0x0010.
+	// and Is_Dead being 0x0000. The trick is that we shift and add the cell values to get an 8 bit
+	// value 0000 0000 abcd 0000, then do a table lookup to get the pixel representation.
+
+	D = 0				// Initialize our lookup value
+
+	@PB.cell			// A = PB.cell (address of first cell)
+	A = M
+
+	D = M 				// D = first cell "a" (0001 0000 or 0000 0000)
+	D = D + M 		    // D = first cell << 1 (0000 0000 00a0 0000)
+
+	@PB.cell			// A, PB.cell = ++PB.cell (address of second cell "b")
+	AM = M + 1
+
+	D = D + M 			// D = 0000 0000 00ab 0000
+	A = D 				// D = D << 1 (0000 0000 0ab0 0000)
+	D = D + A
+
+	@PB.cell			// A, PB.cell = ++PB.cell (address of third cell "c")
+	AM = M + 1
+
+	D = D + M 			// D = 0000 0000 0abc 0000
+	A = D 				// D = D << 1 (0000 0000 abc0 0000)
+	D = D + A
+
+	@PB.cell			// A, PB.cell = ++PB.cell (address of last cell "d")
+	AM = M + 1
+
+	D = D + M 			// D = 0000 0000 abcd 0000
+
+	@CellBlocks			// D = CellBlocks[D] converts to pixel representation
+	A = A + D
+	D = M
+
+// Paint the pixels in D into 4 successive rows of the screen.
+// Loop is unrolled for efficiency.
+
+(PBQ.Paint)
+
+	@PBQ.pixels 		// Save our pixels
+	M = D
+
+	@PB.board 			// A = PB.board (location of first screen word to bash)
+	A = M
+
+	M = D 				// [PB.board] = PBQ.pixels (still in D) -- row 0
+
+	D = A 				// PB.board = PB.board + 32
+	@Screen_Words_Per_Row
+	D = D + A
+	@PB.board
+	M = D
+
+	@PBQ.pixels 		// [PB.board] = PBQ.pixels -- row 1
+	D = M
+	@PB.board
 	A = M
 	M = D
 
-	D = A + 1		// G.cell++
-	@G.cell
-	M = D			// At this point, D = G.cell
 
-// The above loop can be unrolled as many times as we like, saving 2 instructions
-// per loop unroll.
+	D = A 				// PB.board = PB.board + 32
+	@Screen_Words_Per_Row
+	D = D + A
+	@PB.board
+	M = D
 
-	@G.3.Top		// Continue with the loop. At this point, D = G.cell
+	@PBQ.pixels 		// [PB.board] = PBQ.pixels -- row 2
+	D = M
+	@PB.board
+	A = M
+	M = D
+
+	D = A 				// PB.board = PB.board + 32
+	@Screen_Words_Per_Row
+	D = D + A
+	@PB.board
+	M = D
+
+	@PBQ.pixels 		// [PB.board] = PBQ.pixels -- row 3
+	D = M
+	@PB.board
+	A = M
+	M = D
+
+// PB.board now contains an address in the 4th row. We need to go back to
+// the first row, then move forward to the next word. Since we moved 3 x 32
+// words, we simply subtract (3*32)-1. Similarly, we need to increment
+// PB.cell to move to the first cell of the next pair.
+
+(PBQ.NextQuad)
+
+	@95 				// PB.board = PB.board - 95
+	D = A
+	@PB.board
+	M = M - D
+
+	@PB.cell
+	M = M + 1
+
+	@PBR.quad 			// PB.pair,D = PB.pair - 1
+	MD = M - 1
+	
+	@PBR.forQuad		// Loop if PBR.quad > 0
+	D ; JGT
+
+// Update PB.cell and PB.board so they are correct for the next iteration.
+
+	@PB.cell 			// PB.cell = PB.cell + 2 (skips border cells)
+	M = M + 1
+	M = M + 1
+
+	@96 				// PB.board = PB.board + 32 * 3 (skips 3 pixel rows)
+	D = A
+	@PB.board
+	M = M + D
+
+// Return to caller.
+
+	@SP 				// Jump to [++SP]
+	AM = M + 1
+	A = M
 	0 ; JMP
 
 // Load_Board (LB) function. Expects address of board data loader code in D. Clears the board, unpacks the data,
@@ -3821,205 +4213,6 @@ $NAND_00.png(*)=Boards/NAND_00.png
 // Return to caller.
 
 	@SP 			// Jump to [++SP]
-	AM = M + 1
-	A = M
-	0 ; JMP
-
-// Paint_Board (PB) function; paints the current board onto the screen.
-
-(Paint_Board)
-(PB)
-
-	@SCREEN 				// PB.board = Address of screen
-	D = A
-	@PB.board
-	M = D
-
-	@Board+Board_First_Cell // PB.cell = First real cell of the board
-	D = A
-	@PB.cell
-	M = D
-
-	@Board_Rows 			// PB.row = 64 (number of rows we need to paint)
-	D = A
-	@PB.row
-	M = D
-
-(PB.forRow) 				// Repeat Paint_Board_Row() while (--PB.row > 0)
-
-	@PB.forRow.Ret 			// D = Paint_Board_Row return address
-	D = A
-
-	@SP 					// [SP--] = D (PUSH)
-	A = M
-	M = D
-	@SP
-	M = M - 1
-
-	@Paint_Board_Row 		// Paint_Board_Row()
-	0 ; JMP
-
-(PB.forRow.Ret)
-
-	@PB.row 				// PB.row,D = PB.row - 1
-	MD = M - 1
-	
-	@PB.forRow 				// Loop if PB.row > 0
-	D ; JGT
-
-// Return to caller.
-
-	@SP 					// Jump to [++SP]
-	AM = M + 1
-	A = M
-	0 ; JMP
-
-// Paint_Board_Row(): Paint a single row (128 cells) onto the screen. We use an 4x4 matrix of pixels
-// for each cell, so four cells fit into each word of pixels (16 pixels/word), and each row is
-// replicated 4 times. On exit, PB.board points to the first word of pixels for the next row of
-// cells, and PB.cell points to the first cell of the next row.
-
-(Paint_Board_Row)
-(PBR)
-
-	@Board_Cols/4 		// PBR.quad = 32 (number of quads of cells we need to paint)
-	D = A
-	@PBR.quad
-	M = D
-
-(PBR.forQuad) 			// repeat Paint_Board_Quad() while (--PBR.quad > 0)
-
-// Paint_Board_Quad(): paint a quad of cells [PB.cell] ... [PB.cell+3] onto the screen at word
-// [PB.board]. Repeat for 4 screen rows, then update PB.cell and PB.board for the next
-// iteration.
-//
-// This code is executed so much that all sorts of optimizations are warranted, including
-// inserting it here as an inlined function call to avoid the call-return overhead. This
-// sucks a bit for readability.
-
-(Paint_Board_Quad)
-(PBQ)
-
-	// Convert a set of 4 cells into a 16-bit pixel representation. Depends on Is_Alive being 0x0010.
-	// and Is_Dead being 0x0000. The trick is that we shift and add the cell values to get an 8 bit
-	// value 0000 0000 abcd 0000, then do a table lookup to get the pixel representation.
-
-	D = 0				// Initialize our lookup value
-
-	@PB.cell			// A = PB.cell (address of first cell)
-	A = M
-
-	D = M 				// D = first cell "a" (0001 0000 or 0000 0000)
-	D = D + M 		    // D = first cell << 1 (0000 0000 00a0 0000)
-
-	@PB.cell			// A, PB.cell = ++PB.cell (address of second cell "b")
-	AM = M + 1
-
-	D = D + M 			// D = 0000 0000 00ab 0000
-	A = D 				// D = D << 1 (0000 0000 0ab0 0000)
-	D = D + A
-
-	@PB.cell			// A, PB.cell = ++PB.cell (address of third cell "c")
-	AM = M + 1
-
-	D = D + M 			// D = 0000 0000 0abc 0000
-	A = D 				// D = D << 1 (0000 0000 abc0 0000)
-	D = D + A
-
-	@PB.cell			// A, PB.cell = ++PB.cell (address of last cell "d")
-	AM = M + 1
-
-	D = D + M 			// D = 0000 0000 abcd 0000
-
-	@CellBlocks			// D = CellBlocks[D] converts to pixel representation
-	A = A + D
-	D = M
-
-// Paint the pixels in D into 4 successive rows of the screen.
-// Loop is unrolled for efficiency.
-
-(PBQ.Paint)
-
-	@PBQ.pixels 		// Save our pixels
-	M = D
-
-	@PB.board 			// A = PB.board (location of first screen word to bash)
-	A = M
-
-	M = D 				// [PB.board] = PBQ.pixels (still in D) -- row 0
-
-	D = A 				// PB.board = PB.board + 32
-	@Screen_Words_Per_Row
-	D = D + A
-	@PB.board
-	M = D
-
-	@PBQ.pixels 		// [PB.board] = PBQ.pixels -- row 1
-	D = M
-	@PB.board
-	A = M
-	M = D
-
-
-	D = A 				// PB.board = PB.board + 32
-	@Screen_Words_Per_Row
-	D = D + A
-	@PB.board
-	M = D
-
-	@PBQ.pixels 		// [PB.board] = PBQ.pixels -- row 2
-	D = M
-	@PB.board
-	A = M
-	M = D
-
-	D = A 				// PB.board = PB.board + 32
-	@Screen_Words_Per_Row
-	D = D + A
-	@PB.board
-	M = D
-
-	@PBQ.pixels 		// [PB.board] = PBQ.pixels -- row 3
-	D = M
-	@PB.board
-	A = M
-	M = D
-
-// PB.board now contains an address in the 4th row. We need to go back to
-// the first row, then move forward to the next word. Since we moved 3 x 32
-// words, we simply subtract (3*32)-1. Similarly, we need to increment
-// PB.cell to move to the first cell of the next pair.
-
-(PBQ.NextQuad)
-
-	@95 				// PB.board = PB.board - 95
-	D = A
-	@PB.board
-	M = M - D
-
-	@PB.cell
-	M = M + 1
-
-	@PBR.quad 			// PB.pair,D = PB.pair - 1
-	MD = M - 1
-	
-	@PBR.forQuad		// Loop if PBR.quad > 0
-	D ; JGT
-
-// Update PB.cell and PB.board so they are correct for the next iteration.
-
-	@PB.cell 			// PB.cell = PB.cell + 2 (skips border cells)
-	M = M + 1
-	M = M + 1
-
-	@96 				// PB.board = PB.board + 32 * 3 (skips 3 pixel rows)
-	D = A
-	@PB.board
-	M = M + D
-
-// Return to caller.
-
-	@SP 				// Jump to [++SP]
 	AM = M + 1
 	A = M
 	0 ; JMP

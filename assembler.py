@@ -71,7 +71,8 @@ Operation = Dict[str, Any]  # An assembler operation, typically one per non-comm
 Line = Tuple[int, str, str] # Line number, line, original (unmunged) line
 
 DEBUG = False               # Debug output flag
-MAXMEM = 16384              # Limit of ram space
+MAXRAM = 16384              # Limit of ram space
+MAXROM = 32768              # Limit of rom space
 
 # Various sets used in parsing.
 
@@ -932,8 +933,8 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                         symbols[sym] = ram
                         ram = ram + cv
                         declared_variables.append(sym)
-                        if ram > MAXMEM:
-                            o['error'] = 'Out of memory.'
+                        if ram > MAXRAM:
+                            o['error'] = 'Out of RAM (data) memory.'
                     ucase_symbols.append(sym.upper())
 
     if DEBUG:
@@ -963,7 +964,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                         ram = ram + 1
                         declared_variables.append(sym)
                         ucase_symbols.append(sym.upper())
-                        if ram > MAXMEM:
+                        if ram > MAXRAM:
                             o['error'] = 'Out of memory.'
 
     if DEBUG:
@@ -1044,6 +1045,9 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
 
         pc = pc + len(initops)
 
+        if (pc >= MAXROM):
+            ops[-1]['error'] = 'Program too large!'
+
     # If we have any errors at this point, don't bother to do any more work,
     # otherwise generate the code.
 
@@ -1099,7 +1103,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
             for o in ops:
                 print(o)
 
-        print(f'Program length: {pc}, RAM usage: {ram} (of 16384, {int(ram*100/16384)}%)')
+        print(f'Program length: {pc} (of {MAXROM}, {int(pc*100/MAXROM)}%), RAM usage: {ram} (of {MAXRAM}, {int(ram*100/MAXRAM)}%)')
         print('Assembly successful - results written to ' + oname)
         
         exit(0)
