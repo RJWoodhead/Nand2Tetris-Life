@@ -23,7 +23,9 @@
 #
 # $symbol(size) to declare an array (allocates to next var slot + size-1 addrs).
 #
-# $symbol=[value] declares a variable and initializes it.
+# $symbol=value declares a variable and initializes it to value.
+#
+# $symbol@value declares symbol to be a variable aliased to value.
 #
 # $symbol(size)=Values,Values, ... ,Values does the same thing for an array.
 #
@@ -33,7 +35,7 @@
 # If the symbol is \_ (ie: $\_) an anonymous variable or variable block is
 # allocated, so you can do stuff like $_(5)=1,2,3,4,5.
 #
-# #symbol=[value] defines a constant (doesn't allocate memory).
+# #symbol=value defines a constant (doesn't allocate memory).
 #
 # As memory can't be initialized on program load, the assembler automatically
 # creates the code to do any needed initializations and inserts a call to it
@@ -71,7 +73,8 @@ Operation = Dict[str, Any]  # An assembler operation, typically one per non-comm
 Line = Tuple[int, str, str] # Line number, line, original (unmunged) line
 
 DEBUG = False               # Debug output flag
-MAXMEM = 16384              # Limit of ram space
+MAXRAM = 16384              # Limit of ram space
+MAXROM = 32768              # Limit of rom space
 
 # Various sets used in parsing.
 
@@ -148,6 +151,7 @@ predefined_symbols: List[str] = [k for k in symbols.keys()]
 address_labels: List[str] = []
 declared_values: List[str] = []
 declared_variables: List[str] = []
+implicit_variables: List[str] = []
 ucase_symbols: List[str] = []
 
 # Constants used in building instructions.
@@ -564,6 +568,13 @@ def operation(line: Line) -> Operation:
                 return {'cType': 'E', 'line': line, 'error': f'Variable size (1) does not match number of Values provided ({len(vlist)})'}
             else:
                 return {'cType': 'V', 'symbol': vname, 'expression': '1', 'init': vlist, 'line': line}	    
+        elif '@' in o:
+            vname, vinit = o.split('@', 1)
+            vlist = vinit.split(',')
+            if len(vlist) != 1:
+                return {'cType': 'E', 'line': line, 'error': f'Variable alias can only one initializer value'}
+            else:
+                return {'cType': 'V', 'symbol': vname, 'expression': vlist[0], 'alias': True, 'line': line}	    
 
         else:
             return {'cType': 'V', 'symbol': o, 'expression': '1', 'line': line}
@@ -772,7 +783,7 @@ def print_symbols(symbols: Values, valid: List[str], title: str, byname: bool):
  
     # Print the header
 
-    print(title + (' (by name)' if byname else ' (by Values)'))
+    print(title + (' (by name)' if byname else ' (by value)'))
     print(separator.join([ruler for i in range(0, num_cols)]))
 
     # This little bit of evilness prints all the symbols in a row, but orders the symbols column-first, which
@@ -897,7 +908,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
         print()
         print('Pass 2')
     
-    # Symbol table pass 2, handle the # defines.
+    # Symbol table pass 2, handle the # and $ defines.
 
     ram = 16    # Locations 0-15 are reserved, so 16 is the first available
 
@@ -925,15 +936,18 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                     except Exception as ex:
                         o['error'] = str(ex)
                         cv = 1
-                    if ct == 'D':
+                    if ct == 'D':           # Constant
                         symbols[sym] = cv
                         declared_values.append(sym)
-                    else:
-                        symbols[sym] = ram
-                        ram = ram + cv
+                    else:                   # Variable
+                        if 'alias' in o:    # Alias to existing variable
+                            symbols[sym] = cv
+                        else:
+                            symbols[sym] = ram
+                            ram = ram + cv
+                            if ram > MAXRAM:
+                                o['error'] = 'Out of RAM (data) memory.'
                         declared_variables.append(sym)
-                        if ram > MAXMEM:
-                            o['error'] = 'Out of memory.'
                     ucase_symbols.append(sym.upper())
 
     if DEBUG:
@@ -962,8 +976,9 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                         symbols[sym] = ram
                         ram = ram + 1
                         declared_variables.append(sym)
+                        implicit_variables.append(sym)
                         ucase_symbols.append(sym.upper())
-                        if ram > MAXMEM:
+                        if ram > MAXRAM:
                             o['error'] = 'Out of memory.'
 
     if DEBUG:
@@ -1044,6 +1059,9 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
 
         pc = pc + len(initops)
 
+        if (pc >= MAXROM):
+            ops[-1]['error'] = 'Program too large!'
+
     # If we have any errors at this point, don't bother to do any more work,
     # otherwise generate the code.
 
@@ -1064,6 +1082,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
             print_symbols(symbols, declared_values, 'Constants', byname=False)
             print_symbols(symbols, declared_variables, 'Variables', byname=True)
             print_symbols(symbols, declared_variables, 'Variables', byname=False)
+            print_symbols(symbols, implicit_variables, 'Implicitly defined variables (in @statements)', byname=True)
 
     # Extract any errors or warnings that have been generated.
 
@@ -1099,7 +1118,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
             for o in ops:
                 print(o)
 
-        print(f'Program length: {pc}, RAM usage: {ram} (of 16384, {int(ram*100/16384)}%)')
+        print(f'Program length: {pc} (of {MAXROM}, {int(pc*100/MAXROM)}%), RAM usage: {ram} (of {MAXRAM}, {int(ram*100/MAXRAM)}%)')
         print('Assembly successful - results written to ' + oname)
         
         exit(0)

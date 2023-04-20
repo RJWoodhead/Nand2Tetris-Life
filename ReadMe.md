@@ -39,7 +39,9 @@ The original HACK assembler is fine for the small programs typically written dur
 
 * $symbol(size) to declare an array (allocates to next var slot + size-1 addrs).
 
-* $symbol=[value] declares a variable and initializes it.
+* $symbol=value declares a variable and initializes it.
+
+* $symbol@value declares symbol to be a variable aliased to value.
 
 * $symbol(size)=Values,Values, ... ,Values does the same thing for an array.
 
@@ -47,7 +49,7 @@ The original HACK assembler is fine for the small programs typically written dur
 
 * If the symbol is \_ (ie: $\_) an anonymous variable or variable block is allocated, so you can do stuff like $_(5)=1,2,3,4,5.
 
-* #symbol=[value] defines a constant (doesn't allocate memory).
+* #symbol=value defines a constant (doesn't allocate memory).
 
 * As memory can't be initialized on program load, the assembler automatically creates the code to do any needed initializations and inserts a call to it at the top of your code!
 
