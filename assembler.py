@@ -151,6 +151,7 @@ predefined_symbols: List[str] = [k for k in symbols.keys()]
 address_labels: List[str] = []
 declared_values: List[str] = []
 declared_variables: List[str] = []
+implicit_variables: List[str] = []
 ucase_symbols: List[str] = []
 
 # Constants used in building instructions.
@@ -782,7 +783,7 @@ def print_symbols(symbols: Values, valid: List[str], title: str, byname: bool):
  
     # Print the header
 
-    print(title + (' (by name)' if byname else ' (by Values)'))
+    print(title + (' (by name)' if byname else ' (by value)'))
     print(separator.join([ruler for i in range(0, num_cols)]))
 
     # This little bit of evilness prints all the symbols in a row, but orders the symbols column-first, which
@@ -975,6 +976,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                         symbols[sym] = ram
                         ram = ram + 1
                         declared_variables.append(sym)
+                        implicit_variables.append(sym)
                         ucase_symbols.append(sym.upper())
                         if ram > MAXRAM:
                             o['error'] = 'Out of memory.'
@@ -1080,6 +1082,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
             print_symbols(symbols, declared_values, 'Constants', byname=False)
             print_symbols(symbols, declared_variables, 'Variables', byname=True)
             print_symbols(symbols, declared_variables, 'Variables', byname=False)
+            print_symbols(symbols, implicit_variables, 'Implicitly defined variables (in @statements)', byname=True)
 
     # Extract any errors or warnings that have been generated.
 

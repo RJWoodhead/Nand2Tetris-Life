@@ -96,43 +96,6 @@ $BoardEndMark=END_M
 // program, R1-R15 are used as scratchpad temp variables that are not preserved over function
 // calls. Alias declarations are used to define these variables.
 
-// Next Generation update table converts a previous status + neighbor count into a new status. It
-// starts with BoardEndMark (-1, defined below) because of a cute little optimization that saves
-// us some checking on the offset loop.
-
-$UpdateTable(33) = END_M, \
-				   DEAD, DEAD, DEAD,ALIVE, DEAD, DEAD, DEAD, DEAD, \
-				   DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, \
-				   DEAD, DEAD,ALIVE,ALIVE, DEAD, DEAD, DEAD, DEAD, \
-				   DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD
-
-// Conversion table for creating screen cell blocks. Since our ALIVE value is 0x0010 and each
-// screen word contains 4 cells, we can shift and combine 4 cell values into a single value with
-// a different bit for each cell (0000 0000 abcd 0000) and then use a table to convert this to
-// the screen representation. Each value is duplicated 16 times so we can use the raw value.
-// It'd be nice if HACK had a right-shift instruction but them's the breaks.
-
-$CellBlocks(256) = \
-	0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, \
-	0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, \
-	0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, \
-	0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, \
-
-	0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, \
-	0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, \
-	0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, \
-	0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, \
-
-	0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, \
-	0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, \
-	0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, \
-	0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, \
-
-	0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, \
-	0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, \
-	0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, \
-	0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF
-
 // We can have as many undo buffers as space permits. Boards are stored in the undo buffers as bitmaps,
 // so we have to compress them when saving and can use the stored board load routine to restore them.
 
@@ -189,7 +152,7 @@ $Life.Y=32				// Y cursor position.
 #Life.SPEED=32767		// How fast does cursor blink?
 $Life.Blink=Life.SPEED	// Blink loop counter.
 
-$Life.Key @ R1			// Current key temp variable
+$Life.Key				// Current key temp variable
 
 	@KBD 			// Life.Key = [KBD]
 	D = M
@@ -348,7 +311,7 @@ $Blink.Bits(4)=0b0000000000000110,0b0000000001100000,0b0000011000000000,0b011000
 
 (Key.Pressed)
 
-	@Life.Key 		// @Life.Key = D
+	@Life.Key 		// Life.Key = D
 	M = D
 
 	// Arrow keys
@@ -674,19 +637,25 @@ $Blink.Bits(4)=0b0000000000000110,0b0000000001100000,0b0000011000000000,0b011000
 // stuff before it gets copied), and then we compress the board and
 // store it at the top of the buffer.
 
+// Parameters for Load_Board() and Save_Board()
+
+$Undo.Count				// Count of # of words to move.
+$Undo.From				// From Address.
+$Undo.To				// To Address.
+
 (Key.Push)
 
-	@UNDO_COPY_LEN		// Undo.Count = # of words to copy
+	@UNDO_COPY_LEN		// Undo.Count = # of words to copy.
 	D = A
 	@Undo.Count
 	M = D
 
-	@UNDO_PUSH_FROM		// Undo.From = Undo
+	@UNDO_PUSH_FROM		// Undo.From = Undo.
 	D = A
 	@Undo.From
 	M = D
 
-	@UNDO_PUSH_TO		// Undo.To = Undo2
+	@UNDO_PUSH_TO		// Undo.To = Undo2.
 	D = A
 	@Undo.To
 	M = D
@@ -890,7 +859,7 @@ $Blink.Bits(4)=0b0000000000000110,0b0000000001100000,0b0000011000000000,0b011000
 (Key.Toggle)
 (Toggle)
 
-$Toggle.Cell @ R2	// Local variable
+$Toggle.Cell		// Local variable
 
 	@Life.Y         // Cell Address = (BOARD_COLS+2)*(Life.Y+1) + Life.X + Address of Board + 1
 	AD = M + 1		// AD = Life.Y + 1
@@ -900,8 +869,8 @@ $Toggle.Cell @ R2	// Local variable
 	AD = A + D 		// *16
 	AD = A + D 		// *32
 	AD = A + D 		// *64
-	AD = A + D 		// *128 (Depends on BOARD_COLS being 128)
-	@Life.Y 		// Need to get to *130, so add Life.Y+1 in again twice
+	AD = A + D 		// *128 (Depends on BOARD_COLS being 128).
+	@Life.Y 		// Need to get to *130, so add Life.Y+1 in again twice.
 	D = D + M
 	D = D + M
 	D = D + 1
@@ -913,17 +882,17 @@ $Toggle.Cell @ R2	// Local variable
 	@Board+1		// D = D + Address of Board + 1
 	D = D + A
 
-    @Toggle.Cell    // Save it for later and also move to
+	@Toggle.Cell    // Save it for later and also move to
     AM = D          // A register so we can look at it.
 
     D = M           // Get value of cell. Assumes DEAD is 0x0000.
-    @Key.Make.Live  // If dead, make alive, and vice-versa.
+	@Key.Make.Live  // If dead, make alive, and vice-versa.
     D ; JEQ
 
 (Key.Make.Dead)
 
     D = 0           // Assumes DEAD is 0x0000.
-    @Toggle.Cell    // Address of current cell.
+	@Toggle.Cell    // Address of current cell.
     A = M
     M = D           // Update value.
 	@Key.Change     // And return.
@@ -931,9 +900,9 @@ $Toggle.Cell @ R2	// Local variable
 
 (Key.Make.Live)
 
-    @ALIVE			// D = ALIVE
+	@ALIVE			// D = ALIVE
     D = A
-    @Toggle.Cell    // Address of current cell.
+	@Toggle.Cell    // Address of current cell.
     A = M
     M = D           // Update value.
 	@Key.Change     // And return.
@@ -982,7 +951,7 @@ $Toggle.Cell @ R2	// Local variable
 
 (Key.Change)
 
-	@Key.Up			// D = return address
+	@Key.Up			// D = return address.
 	D = A
 
 	@SP 			// [SP--] = D (PUSH)
@@ -1018,27 +987,30 @@ $Toggle.Cell @ R2	// Local variable
 // Generation: runs a single generation of Life, then updates the board display.
 
 (Generation)
+(G)
+
+$G.Cell						// Address of current cell
 
 	// Phase 1: for each living cell (not counting the guard cells), increment all
 	// the neighbors, so they have a count of how many neighbors they have. Note that
 	// we can plow through all the guard cells on left and right because they will
 	// always be dead, and it's faster to do this than do a double-loop with skip.
 
-	@Board+BOARD_FIRST_CELL	// G.cell = Address of the first real cell
+	@Board+BOARD_FIRST_CELL	// G.Cell = Address of the first real cell.
 	D = A
-	@G.cell
+	@G.Cell
 	M = D
 
-(G.1.Top) 					// repeat check_cell until we hit the special end-of-board cell
+(G.1.Top) 					// repeat check_cell until we hit the special end-of-board cell.
 
-	// Simple check for dead cell ([G.cell] & ALIVE == 0) is constant 7 instructions.
-	// Short-circuit check is 5 instructions if [G.cell] is 0, 9 if not.
+	// Simple check for dead cell ([G.Cell] & ALIVE == 0) is constant 7 instructions.
+	// Short-circuit check is 5 instructions if [G.Cell] is 0, 9 if not.
 
-	@G.cell					// D = [G.cell]
+	@G.Cell					// D = [G.Cell]
 	A = M
 	D = M
 
-	@G.1.Bottom				// Short-circuit quick test for 0 (most likely case)
+	@G.1.Bottom				// Short-circuit quick test for 0 (most likely case).
 	D ; JEQ
 
 	@ALIVE
@@ -1047,46 +1019,46 @@ $Toggle.Cell @ R2	// Local variable
 	@G.1.Bottom
 	D ; JEQ
 
-	@G.cell 				// A=[G.cell]-(BOARD_COLS+3) (top-left neighbor)
+	@G.Cell 				// A=[G.Cell]-(BOARD_COLS+3) (top-left neighbor).
 	D = M
 	@BOARD_COLS+3
 	A = D - A
 	M = M + 1				// [A]++
 
-	A = A + 1 				// [++A]++ (top neighbor)
+	A = A + 1 				// [++A]++ (top neighbor).
 	M = M + 1
 
-	A = A + 1 				// [++A]++ (top-right neighbor)
+	A = A + 1 				// [++A]++ (top-right neighbor).
 	M = M + 1
 
-	D = A 					// A=A+BOARD_COLS (left neighbor)
+	D = A 					// A=A+BOARD_COLS (left neighbor).
 	@BOARD_COLS
 	A = D + A
 	M = M + 1				// [A]++
 
-	A = A + 1 				// A=A+2 (right neighbor)
+	A = A + 1 				// A=A+2 (right neighbor).
 	A = A + 1
 	M = M + 1				// [A]++
 
-	D = A 					// A=A+BOARD_COLS (bottom-left neighbor)
+	D = A 					// A=A+BOARD_COLS (bottom-left neighbor).
 	@BOARD_COLS
 	A = D + A
 	M = M + 1
 
-	A = A + 1 				// [++A]++ (bottom neighbor)
+	A = A + 1 				// [++A]++ (bottom neighbor).
 	M = M + 1
 
-	A = A + 1 				// [++A]++ (bottom-right neighbor)
+	A = A + 1 				// [++A]++ (bottom-right neighbor).
 	M = M + 1
 
 (G.1.Bottom)
 
-	// Optimization to speed up the loop. Normally we would just check to see if G.cell has
+	// Optimization to speed up the loop. Normally we would just check to see if G.Cell has
 	// passed the last actual cell in the board. This takes 6 instructions as follows:
 	//
-	//  @G.cell 					// D,G.cell = G.cell + 1
+	//  @G.Cell 					// D,G.Cell = G.Cell + 1
 	//  MD = M + 1
-	//	@Board+BOARD_LAST_CELL+1 	// if (G.cell != First Guard Cell after board) goto G.1.Top
+	//	@Board+BOARD_LAST_CELL+1 	// if (G.Cell != First Guard Cell after board) goto G.1.Top
 	//	D = D - A
 	//	@G.1.Top
 	//	D ; JNE
@@ -1096,7 +1068,7 @@ $Toggle.Cell @ R2	// Local variable
 	// Each iteration is 10 instructions, so it's a win if there are more than 10 rows in our
 	// board, which there certainly are!
 
-	@G.cell 					// A,G.cell = G.cell + 1
+	@G.Cell 					// A,G.Cell = G.Cell + 1
 	AM = M + 1
 	D = M + 1					// if the special guard cell is -1, then D will now be 0
 	@G.1.Top					// so if D != 0, we are not done.
@@ -3447,200 +3419,200 @@ $Toggle.Cell @ R2	// Local variable
 	// Phase 3: use the previous generation state and the count of neighbors to update
 	// the cells.
 
-	@Board+BOARD_FIRST_CELL-1 // G.cell = cell BEFORE the first possible active cell
+	@Board+BOARD_FIRST_CELL-1 // G.Cell = cell BEFORE the first possible active cell.
 	D = A
-	@G.cell
+	@G.Cell
 	M = D
 	
 (G.3.Top) 			// Repeat until we hit our special guard cell (value = -1)
 
-	@G.cell			// Do a short-circuit check for ++[G.cell] = 0. In this instance
+	@G.Cell			// Do a short-circuit check for ++[G.Cell] = 0. In this instance
 	AM = M + 1 		// we know the new value is also 0, so we don't need to update
 	D = M			// it, and can fall through to checking the next cell. We can
 	@G.3.Update		// unroll this check as many times as we want to avoid loop
 	D ; JNE			// overhead.
 
-	@G.cell			// Lather, rinse and repeat.
+	@G.Cell			// Lather, rinse and repeat.
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell			// Lather, rinse and repeat.
+	@G.Cell			// Lather, rinse and repeat.
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell			// Lather, rinse and repeat.
+	@G.Cell			// Lather, rinse and repeat.
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell			// Lather, rinse and repeat.
+	@G.Cell			// Lather, rinse and repeat.
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell			// Lather, rinse and repeat.
+	@G.Cell			// Lather, rinse and repeat.
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell			// Lather, rinse and repeat.
+	@G.Cell			// Lather, rinse and repeat.
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell			// Lather, rinse and repeat.
+	@G.Cell			// Lather, rinse and repeat.
 	AM = M + 1		// OK, you get the idea.
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
 	D ; JNE
 
-	@G.cell
+	@G.Cell
 	AM = M + 1
 	D = M
 	@G.3.Update
@@ -3649,13 +3621,23 @@ $Toggle.Cell @ R2	// Local variable
 	@G.3.Top		// At end of unroll, we loop back up and continue
 	0 ; JMP			// to try and short-circuit.
 
+// Next Generation update table converts a previous status + neighbor count into a new status.
+// It starts with END_M (-1) because of a cute little optimization that saves us some checking 
+// on the offset loop.
+
+$G.NextGen(33) = END_M, \
+	DEAD, DEAD, DEAD,ALIVE, DEAD, DEAD, DEAD, DEAD, \
+	DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, \
+	DEAD, DEAD,ALIVE,ALIVE, DEAD, DEAD, DEAD, DEAD, \
+	DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD
+
 (G.3.Update)
 
-	@UpdateTable+1	// UpdateTable starts with a -1 value followed by all the
+	@G.NextGen+1	// G.NextGen starts with a -1 value followed by all the
 	A = A + D 		// actual new cell values, so we will either get the new
 	D = M			// cell value or -1 if we are at the end of the board.
 
-	@G.cell			// We then update [G.cell] to the new value, which means
+	@G.Cell			// We then update [G.Cell] to the new value, which means
 	A = M			// that the end of board cell will get set to -1 which
 	M = D			// is what it always needs to be AND the new cell value
 					// will still be in D. If this value is >= 0, then we
@@ -3667,24 +3649,28 @@ $Toggle.Cell @ R2	// Local variable
 (Paint_Board)
 (PB)
 
-	@SCREEN 				// PB.board = Address of screen
+$PB.Screen			// Pointer to current screen word.
+$PB.Cell  			// Current cell in board.
+$PB.Row   			// Current row in board.
+
+	@SCREEN 				// PB.Screen = Address of screen.
 	D = A
-	@PB.board
+	@PB.Screen
 	M = D
 
-	@Board+BOARD_FIRST_CELL // PB.cell = First real cell of the board
+	@Board+BOARD_FIRST_CELL // PB.Cell = First real cell of the board
 	D = A
-	@PB.cell
+	@PB.Cell
 	M = D
 
-	@BOARD_ROWS 			// PB.row = 64 (number of rows we need to paint)
+	@BOARD_ROWS 			// PB.Row = 64 (number of rows we need to paint).
 	D = A
-	@PB.row
+	@PB.Row
 	M = D
 
-(PB.forRow) 				// Repeat Paint_Board_Row() while (--PB.row > 0)
+(PB.forRow) 				// Repeat Paint_Board_Row() while (--PB.Row > 0)
 
-	@PB.forRow.Ret 			// D = Paint_Board_Row return address
+	@PB.forRow.Ret 			// D = Paint_Board_Row return address.
 	D = A
 
 	@SP 					// [SP--] = D (PUSH)
@@ -3698,10 +3684,10 @@ $Toggle.Cell @ R2	// Local variable
 
 (PB.forRow.Ret)
 
-	@PB.row 				// PB.row,D = PB.row - 1
+	@PB.Row 				// PB.Row,D = PB.Row - 1
 	MD = M - 1
 	
-	@PB.forRow 				// Loop if PB.row > 0
+	@PB.forRow 				// Loop if PB.Row > 0
 	D ; JGT
 
 // Return to caller.
@@ -3713,21 +3699,23 @@ $Toggle.Cell @ R2	// Local variable
 
 // Paint_Board_Row(): Paint a single row (128 cells) onto the screen. We use an 4x4 matrix of pixels
 // for each cell, so four cells fit into each word of pixels (16 pixels/word), and each row is
-// replicated 4 times. On exit, PB.board points to the first word of pixels for the next row of
-// cells, and PB.cell points to the first cell of the next row.
+// replicated 4 times. On exit, PB.Screen points to the first word of pixels for the next row of
+// cells, and PB.Cell points to the first cell of the next row.
 
 (Paint_Board_Row)
 (PBR)
 
-	@BOARD_COLS/4 		// PBR.quad = 32 (number of quads of cells we need to paint)
+$PBR.Quad				// Quad cell paint loop count.
+
+	@BOARD_COLS/4 		// PBR.Quad = 32 (number of quads of cells we need to paint).
 	D = A
-	@PBR.quad
+	@PBR.Quad
 	M = D
 
-(PBR.forQuad) 			// repeat Paint_Board_Quad() while (--PBR.quad > 0)
+(PBR.forQuad) 			// repeat Paint_Board_Quad() while (--PBR.Quad > 0)
 
-// Paint_Board_Quad(): paint a quad of cells [PB.cell] ... [PB.cell+3] onto the screen at word
-// [PB.board]. Repeat for 4 screen rows, then update PB.cell and PB.board for the next
+// Paint_Board_Quad(): paint a quad of cells [PB.Cell] ... [PB.Cell+3] onto the screen at word
+// [PB.Screen]. Repeat for 4 screen rows, then update PB.Cell and PB.Screen for the next
 // iteration.
 //
 // This code is executed so much that all sorts of optimizations are warranted, including
@@ -3737,38 +3725,67 @@ $Toggle.Cell @ R2	// Local variable
 (Paint_Board_Quad)
 (PBQ)
 
-	// Convert a set of 4 cells into a 16-bit pixel representation. Depends on ALIVE being 0x0010.
-	// and DEAD being 0x0000. The trick is that we shift and add the cell values to get an 8 bit
-	// value 0000 0000 abcd 0000, then do a table lookup to get the pixel representation.
+$PBQ.Pixels				// Pixel representation of assembled group of 4 cells
 
-	D = 0				// Initialize our lookup value
+// Conversion table for creating screen cell blocks. Since our ALIVE value is 0x0010 and each
+// screen word contains 4 cells, we can shift and combine 4 cell values into a single value with
+// a different bit for each cell (0000 0000 abcd 0000) and then use a table to convert this to
+// the screen representation. Each value is duplicated 16 times so we can use the raw value.
+// It'd be nice if HACK had a right-shift instruction but them's the breaks.
 
-	@PB.cell			// A = PB.cell (address of first cell)
+$PBQ.Blocks(256) = \
+	0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, \
+	0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, 0xF000, \
+	0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, \
+	0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, \
+
+	0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, \
+	0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, \
+	0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, \
+	0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, \
+
+	0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, \
+	0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, \
+	0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, \
+	0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, \
+
+	0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, \
+	0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, \
+	0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, \
+	0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF
+
+// Convert a set of 4 cells into a 16-bit pixel representation. Depends on ALIVE being 0x0010.
+// and DEAD being 0x0000. The trick is that we shift and add the cell values to get an 8 bit
+// value 0000 0000 abcd 0000, then do a table lookup to get the pixel representation.
+
+	D = 0				// Initialize our lookup value.
+
+	@PB.Cell			// A = PB.Cell (address of first cell).
 	A = M
 
 	D = M 				// D = first cell "a" (0001 0000 or 0000 0000)
 	D = D + M 		    // D = first cell << 1 (0000 0000 00a0 0000)
 
-	@PB.cell			// A, PB.cell = ++PB.cell (address of second cell "b")
+	@PB.Cell			// A, PB.Cell = ++PB.Cell (address of second cell "b").
 	AM = M + 1
 
 	D = D + M 			// D = 0000 0000 00ab 0000
 	A = D 				// D = D << 1 (0000 0000 0ab0 0000)
 	D = D + A
 
-	@PB.cell			// A, PB.cell = ++PB.cell (address of third cell "c")
+	@PB.Cell			// A, PB.Cell = ++PB.Cell (address of third cell "c").
 	AM = M + 1
 
 	D = D + M 			// D = 0000 0000 0abc 0000
 	A = D 				// D = D << 1 (0000 0000 abc0 0000)
 	D = D + A
 
-	@PB.cell			// A, PB.cell = ++PB.cell (address of last cell "d")
+	@PB.Cell			// A, PB.Cell = ++PB.Cell (address of last cell "d").
 	AM = M + 1
 
 	D = D + M 			// D = 0000 0000 abcd 0000
 
-	@CellBlocks			// D = CellBlocks[D] converts to pixel representation
+	@PBQ.Blocks			// D = PBQ.Blocks[D] converts to pixel representation.
 	A = A + D
 	D = M
 
@@ -3777,81 +3794,80 @@ $Toggle.Cell @ R2	// Local variable
 
 (PBQ.Paint)
 
-	@PBQ.pixels 		// Save our pixels
+	@PBQ.Pixels 		// Save our pixels
 	M = D
 
-	@PB.board 			// A = PB.board (location of first screen word to bash)
+	@PB.Screen 			// A = PB.Screen (location of first screen word to bash).
 	A = M
 
-	M = D 				// [PB.board] = PBQ.pixels (still in D) -- row 0
+	M = D 				// [PB.Screen] = PBQ.Pixels (still in D) -- row 0
 
-	D = A 				// PB.board = PB.board + 32
+	D = A 				// PB.Screen = PB.Screen + 32
 	@SCREEN_WORDS_PER_ROW
 	D = D + A
-	@PB.board
+	@PB.Screen
 	M = D
 
-	@PBQ.pixels 		// [PB.board] = PBQ.pixels -- row 1
+	@PBQ.Pixels 		// [PB.Screen] = PBQ.Pixels -- row 1.
 	D = M
-	@PB.board
+	@PB.Screen
 	A = M
 	M = D
 
-
-	D = A 				// PB.board = PB.board + 32
+	D = A 				// PB.Screen = PB.Screen + 32
 	@SCREEN_WORDS_PER_ROW
 	D = D + A
-	@PB.board
+	@PB.Screen
 	M = D
 
-	@PBQ.pixels 		// [PB.board] = PBQ.pixels -- row 2
+	@PBQ.Pixels 		// [PB.Screen] = PBQ.Pixels -- row 2.
 	D = M
-	@PB.board
+	@PB.Screen
 	A = M
 	M = D
 
-	D = A 				// PB.board = PB.board + 32
+	D = A 				// PB.Screen = PB.Screen + 32
 	@SCREEN_WORDS_PER_ROW
 	D = D + A
-	@PB.board
+	@PB.Screen
 	M = D
 
-	@PBQ.pixels 		// [PB.board] = PBQ.pixels -- row 3
+	@PBQ.Pixels 		// [PB.Screen] = PBQ.Pixels -- row 3.
 	D = M
-	@PB.board
+	@PB.Screen
 	A = M
 	M = D
 
-// PB.board now contains an address in the 4th row. We need to go back to
+// PB.Screen now contains an address in the 4th row. We need to go back to
 // the first row, then move forward to the next word. Since we moved 3 x 32
 // words, we simply subtract (3*32)-1. Similarly, we need to increment
-// PB.cell to move to the first cell of the next pair.
+// PB.Cell to move to the first cell of the next pair.
 
 (PBQ.NextQuad)
 
-	@95 				// PB.board = PB.board - 95
+	@95 				// PB.Screen = PB.Screen - 95
 	D = A
-	@PB.board
+	@PB.Screen
 	M = M - D
 
-	@PB.cell
+	@PB.Cell
 	M = M + 1
 
-	@PBR.quad 			// PB.pair,D = PB.pair - 1
+	@PBR.Quad 			// PB.pair,D = PB.pair - 1
 	MD = M - 1
 	
-	@PBR.forQuad		// Loop if PBR.quad > 0
+	@PBR.forQuad		// Loop if PBR.Quad > 0
 	D ; JGT
 
-// Update PB.cell and PB.board so they are correct for the next iteration.
+// Update PB.Cell and PB.Screen so they are correct for the next iteration.
 
-	@PB.cell 			// PB.cell = PB.cell + 2 (skips border cells)
+	@PB.Cell 			// PB.Cell = PB.Cell + 2 (skips border cells).
 	M = M + 1
 	M = M + 1
 
-	@96 				// PB.board = PB.board + 32 * 3 (skips 3 pixel rows)
+	@96 				// PB.Screen = PB.Screen + 32 * 3 (skips 3 pixel rows).
 	D = A
-	@PB.board
+	@PB.Screen
 	M = M + D
 
 // Return to caller.
@@ -3867,12 +3883,16 @@ $Toggle.Cell @ R2	// Local variable
 (Load_Board)
 (LB)
 
-    @LB.board       // Save the new board's address
+$LB.Board			// Address of compressed board to load.
+$LB.Cell			// Current cell of uncompressed board.
+$LB.Row				// Current row of uncompressed board.
+
+	@LB.Board       // Save the new board's address.
     M=D
 
 // Clear the board by calling Clear_Board (CB) function
 
-	@LB.Ret2 		// D = Clear board return address
+	@LB.Ret2 		// D = Clear board return address.
 	D = A
 
 	@SP 			// [SP--] = D (PUSH)
@@ -3888,17 +3908,17 @@ $Toggle.Cell @ R2	// Local variable
 
 	@Board+BOARD_FIRST_CELL
 	D = A
-	@LB.cell
+	@LB.Cell
 	M = D
 
-	@BOARD_ROWS 	// LB.row = number of rows we need to read
+	@BOARD_ROWS 	// LB.Row = number of rows we need to read.
 	D = A
-	@LB.row
+	@LB.Row
 	M = D
 
-(LB.forRow) 		// repeat Load_Board_Row() while (--LB.row > 0)
+(LB.forRow) 		// repeat Load_Board_Row() while (--LB.Row > 0)
 
-	@LB.forRow.Ret 	// D = Load_Board_Row return address
+	@LB.forRow.Ret 	// D = Load_Board_Row return address.
 	D = A
 
 	@SP 			// [SP--] = D (PUSH)
@@ -3912,10 +3932,10 @@ $Toggle.Cell @ R2	// Local variable
 
 (LB.forRow.Ret)
 
-	@LB.row 		// LB.row,D = LB.row - 1
+	@LB.Row 		// LB.Row,D = LB.Row - 1
 	MD = M - 1
 	
-	@LB.forRow 		// Loop if LB.row > 0
+	@LB.forRow 		// Loop if LB.Row > 0
 	D ; JGT
 
 // Paint the board by jumping directly to Paint_Board()
@@ -3924,79 +3944,84 @@ $Toggle.Cell @ R2	// Local variable
 	@Paint_Board
 	0 ; JMP
 
-// Load_Board_Row function. Load a single row from 8 words starting at LB.board into
-// 128 cells starting at LB.cell, then move LB.cell to the first cell of the next row
-// and LB.board to the first word of the next row of board information.
+// Load_Board_Row function. Load a single row from 8 words starting at LB.Board into
+// 128 cells starting at LB.Cell, then move LB.Cell to the first cell of the next row
+// and LB.Board to the first word of the next row of board information.
 
 (Load_Board_Row)
 (LBR)
 
-	@BOARD_WORDS_PER_ROW // LBR.word = 8 (for 128 col board)
+$LBR.Word					// Current word index in compressed row	
+
+	@BOARD_WORDS_PER_ROW 	// LBR.Word = 8 (for 128 col board)
 	D = A
-	@LBR.word
+	@LBR.Word
 	M = D
 
-(LBR.forWord) 			// Repeat Load_Board_Word while (--LBR.word > 0)
+(LBR.forWord) 				// Repeat Load_Board_Word while (--LBR.Word > 0)
 
-	@LBR.forWord.Ret 	// D = Load_Board_Row return address
+	@LBR.forWord.Ret 		// D = Load_Board_Row return address.
 	D = A
 
-	@SP 				// [SP--] = D (PUSH)
+	@SP 					// [SP--] = D (PUSH)
 	A = M
 	M = D
 	@SP
 	M = M - 1
 
-	@Load_Board_Word	// Load_Board_Word()
+	@Load_Board_Word		// Load_Board_Word()
 	0 ; JMP
 
 (LBR.forWord.Ret)
 
-	@LBR.word 			// LBR.word,D = LBR.word - 1
+	@LBR.Word 				// LBR.Word,D = LBR.Word - 1
 	MD = M - 1
 	
-	@LBR.forWord		// Loop if LB.row > 0
+	@LBR.forWord			// Loop if LB.Row > 0
 	D ; JGT
 
-	@LB.cell 			// LB.cell = LB.cell + 2
+	@LB.Cell 				// LB.Cell = LB.Cell + 2
 	M = M + 1
 	M = M + 1
 
 // Return to caller.
 
-	@SP 				// Jump to [++SP]
+	@SP 					// Jump to [++SP]
 	AM = M + 1
 	A = M
 	0 ; JMP
 
-// Load_Board_Word(D): Use the 16 bits of [LB.board] to set the next
-// D cells starting at [LB.cell]; increment LB.board and LB.cell.
+// Load_Board_Word(D): Use the 16 bits of [LB.Board] to set the next
+// D cells starting at [LB.Cell]; increment LB.Board and LB.Cell.
 
 (Load_Board_Word)
 (LBW)
 
-	@16 				// LBW.count = 16 (# of bits to transfer)
+$LBW.Bits 				// Compressed bits being decoded.
+$LBW.Count				// Current bit being processed.
+
+	@16 				// LBW.Count = 16 (# of bits to transfer).
 	D = A
-	@LBW.count
+	@LBW.Count
 	M = D
 
-	@LB.board 			// @LBW.bits = [LB.board]
+	@LB.Board 			// LBW.Bits = [LB.Board]
 	A = M
 	D = M
-	@LBW.bits
+	@LBW.Bits
 	M = D
 
-(LBW.forCell)			// Repeat [LB.cell++] = Top bit of LBW.bits while (--LBW.count > 0)
+(LBW.forCell)			// Repeat [LB.Cell++] = Top bit of LBW.Bits while (--LBW.Count > 0)
 
-	@LBW.bits 			// D = LBW.bits
+	@LBW.Bits 			// D = LBW.Bits
 	D = M
 
-	M = D + M 			// LBW.bits = LBW.bits << 1 (but D still has original LBW.bits)
+	M = D + M 			// LBW.Bits = LBW.Bits << 1 (but D still has original LBW.Bits).
 
-	@LBW.forCell.Live	// If sign bit of D is set, set living cell, else dead cell
+	@LBW.forCell.Live	// If sign bit of D is set, set living cell, else dead cell.
 	D ; JLT
 
-(LBW.forCell.Dead)		// D = DEAD. Assumes DEAD = 0
+(LBW.forCell.Dead)		// D = DEAD. Assumes DEAD = 0.
 
 	D = 0
 	@LBW.forCell.Set
@@ -4009,15 +4034,15 @@ $Toggle.Cell @ R2	// Local variable
 
 (LBW.forCell.Set)
 
-	@LB.cell 			// [LB.cell] = D
+	@LB.Cell 			// [LB.Cell] = D
 	A = M
 	M = D
 
-	D = A + 1 			// LB.cell++
-	@LB.cell
+	D = A + 1 			// LB.Cell++
+	@LB.Cell
 	M = D
 
-	@LBW.count 			// LBW.Count,D = LBW.Count.i - 1
+	@LBW.Count 			// LBW.Count,D = LBW.Count.i - 1
 	MD = M - 1
 	
 	@LBW.forCell		// Loop if CB.i > 0
@@ -4025,7 +4050,7 @@ $Toggle.Cell @ R2	// Local variable
 
 (LBW.incBoard)
 
-	@LB.board 			// LB.board++ 
+	@LB.Board 			// LB.Board++ 
 	M = M + 1
 
 // Return to caller.
@@ -4041,22 +4066,26 @@ $Toggle.Cell @ R2	// Local variable
 (Save_Board)
 (SB)
 
-    @SB.board       // Save the new board's address
+$SB.Board			// Buffer in which to save the board.
+$SB.Cell			// Current cell being saved.
+$SB.Row				// Current row being saved.
+
+	@SB.Board       // Save the new board's address.
     M=D
 
 	@Board+BOARD_FIRST_CELL
 	D = A
-	@SB.cell
+	@SB.Cell
 	M = D
 
-	@BOARD_ROWS 	// LB.row = number of rows we need to read
+	@BOARD_ROWS 	// LB.Row = number of rows we need to read.
 	D = A
-	@SB.row
+	@SB.Row
 	M = D
 
-(SB.forRow) 		// repeat Save_Board_Row() while (--SB.row > 0)
+(SB.forRow) 		// repeat Save_Board_Row() while (--SB.Row > 0)
 
-	@SB.forRow.Ret 	// D = Save_Board_Row return address
+	@SB.forRow.Ret 	// D = Save_Board_Row return address.
 	D = A
 
 	@SP 			// [SP--] = D (PUSH)
@@ -4070,10 +4099,10 @@ $Toggle.Cell @ R2	// Local variable
 
 (SB.forRow.Ret)
 
-	@SB.row 		// SB.row,D = SB.row - 1
+	@SB.Row 		// SB.Row,D = SB.Row - 1
 	MD = M - 1
 	
-	@SB.forRow 		// Loop if SB.row > 0
+	@SB.forRow 		// Loop if SB.Row > 0
 	D ; JGT
 
 // All done, so return to caller
@@ -4083,101 +4112,106 @@ $Toggle.Cell @ R2	// Local variable
 	A = M
 	0 ; JMP
 
-// Save_Board_Row function. Stores a single row of 8 words starting at SB.board from
-// 128 cells starting at SB.cell, then move SB.cell to the first cell of the next row
-// and SB.board to the first word of the next row of board information.
+// Save_Board_Row function. Stores a single row of 8 words starting at SB.Board from
+// 128 cells starting at SB.Cell, then move SB.Cell to the first cell of the next row
+// and SB.Board to the first word of the next row of board information.
 
 (Save_Board_Row)
 (SBR)
 
-	@BOARD_WORDS_PER_ROW // SBR.word = 8 (for 128 col board)
+$SBR.Word					// Address where packed word will be stored.
+
+	@BOARD_WORDS_PER_ROW 	// SBR.Word = 8 (for 128 col board).
 	D = A
-	@SBR.word
+	@SBR.Word
 	M = D
 
-(SBR.forWord) 			// repeat Save_Board_Word while (--SBR.word > 0)
+(SBR.forWord) 				// repeat Save_Board_Word while (--SBR.Word > 0)
 
-	@SBR.forWord.Ret 	// D = Save_Board_Row return address
+	@SBR.forWord.Ret 		// D = Save_Board_Row return address.
 	D = A
 
-	@SP 				// [SP--] = D (PUSH)
+	@SP 					// [SP--] = D (PUSH)
 	A = M
 	M = D
 	@SP
 	M = M - 1
 
-	@Save_Board_Word	// Save_Board_Word()
+	@Save_Board_Word		// Save_Board_Word()
 	0 ; JMP
 
 (SBR.forWord.Ret)
 
-	@SBR.word 			// LBR.word,D = LBR.word - 1
+	@SBR.Word 				// LBR.Word,D = LBR.Word - 1
 	MD = M - 1
 	
-	@SBR.forWord		// Loop if LB.row > 0
+	@SBR.forWord			// Loop if LB.Row > 0
 	D ; JGT
 
-	@SB.cell 			// LB.cell = LB.cell + 2
+	@SB.Cell 				// LB.Cell = LB.Cell + 2
 	M = M + 1
 	M = M + 1
 
 // Return to caller.
 
-	@SP 				// Jump to [++SP]
+	@SP 					// Jump to [++SP]
 	AM = M + 1
 	A = M
 	0 ; JMP
 
-// Save_Board_Word(D): Store the next 16 cells starting at [SB.cell] into
-// [SB.board]; increment SB.board and SB.cell.
+// Save_Board_Word(D): Store the next 16 cells starting at [SB.Cell] into
+// [SB.Board]; increment SB.Board and SB.Cell.
 
 (Save_Board_Word)
 (SBW)
 
-	@16 				// SBW.count = 16 (# of bits to transfer)
+$SBW.Bits 				// Packed representation of 16 cells.
+$SBW.Count				// Loop counter for the bits.
+
+	@16 				// SBW.Count = 16 (# of bits to transfer).
 	D = A
-	@SBW.count
+	@SBW.Count
 	M = D
 
-	@SBW.bits			// SBW.bits = 0 (we will accumulate them here)
+	@SBW.Bits			// SBW.Bits = 0 (we will accumulate them here).
 	M = 0
 
-(SBW.forCell)			// repeat shifting bits into SBW.bits based on the cell values.
+(SBW.forCell)			// repeat shifting bits into SBW.Bits based on the cell values.
 
-	@SBW.bits 			// SBW.bits << 1
+	@SBW.Bits 			// SBW.Bits << 1
 	D = M
 	M = M + D
 
-	@SB.cell			// D = [SB.cell]
+	@SB.Cell			// D = [SB.Cell]
 	A = M
 	D = M
 
-	@SBW.nextCell		// Skip to next if dead cell (0)
-	D ; JEQ				// Assumes DEAD = 0
+	@SBW.nextCell		// Skip to next if dead cell (0).
+	D ; JEQ				// Assumes DEAD = 0.
 
-	@SBW.bits			// SBW.bits++
+	@SBW.Bits			// SBW.Bits++
 	M = M + 1
 
 (SBW.nextCell)
 
-	@SB.cell			// SB.cell++
+	@SB.Cell			// SB.Cell++
 	M = M + 1
 
-	@SBW.count 			// SBW.Count,D = SBW.Count.i - 1
+	@SBW.Count 			// SBW.Count,D = SBW.Count.i - 1
 	MD = M - 1
 	
-	@SBW.forCell		// Loop if SBW.count > 0
+	@SBW.forCell		// Loop if SBW.Count > 0
 	D ; JGT
 
 (SBW.storeBoard)
 
-	@SBW.bits			// [SB.board] = SBW.bits
+	@SBW.Bits			// [SB.Board] = SBW.Bits
 	D = M
-	@SB.board
+	@SB.Board
 	A = M
 	M = D
 
-	@SB.board			// SB.board++
+	@SB.Board			// SB.Board++
 	M = M + 1
 
 // Return to caller.
@@ -4188,36 +4222,28 @@ $Toggle.Cell @ R2	// Local variable
 	0 ; JMP
 
 // Clear_Board (CB) function. Clears all the cells including the border guard cells
-// Should rewrite to not need the count variable. Lazy.
 
 (Clear_Board)
 (CB)
 
-	@BOARD_SIZE		// 128x64 board has 130x66 cells
-	D = A 			// CB.i is the loop counter
-	@CB.i
-	M = D
+$CB.Word			// Current word being cleared.
 
-	@Board 			// CB.a = Board location
+	@Board-1 		// CB.Word = Word before start of board.
 	D = A
-	@CB.a
-	M = D
-	
-(CB.Top)			// Repeat Mem[CB.a++] = DEAD while (--CB.i > 0) 
-
-	@CB.a 			// [CB.a] = DEAD
-	A = M
-	M = 0			// Assumes DEAD = 0
-	
-	D = A + 1 		// D = CB.a + 1
-	@CB.a 			// CB.a = D
+	@CB.Word
 	M = D
 
-	@CB.i 			// CB.i,D = CB.i - 1
-	MD = M - 1
-	
-	@CB.Top 		// Loop if CB.i > 0
-	D ; JGT
+(CB.Top)			// While [++CB.Word] != -1
+
+	@CB.Word		// ++CB.Word
+	AM = M + 1
+	D = M			// D = [CB.Word] (keep old cell value).
+	M = 0			// [CB.Word] = 0 (zeroes the cell).
+	@CB.Top			// Loop if the value we just zapped was not -1.
+	D ; JGE
+
+	@BoardEndMark	// Fix up the end of board mark.
+	M = -1			// Assumes END_M = -1.
 
 // Return to caller.
 
