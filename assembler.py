@@ -23,7 +23,9 @@
 #
 # $symbol(size) to declare an array (allocates to next var slot + size-1 addrs).
 #
-# $symbol=[value] declares a variable and initializes it.
+# $symbol=value declares a variable and initializes it to value.
+#
+# $symbol@value declares symbol to be a variable aliased to value.
 #
 # $symbol(size)=Values,Values, ... ,Values does the same thing for an array.
 #
@@ -33,7 +35,7 @@
 # If the symbol is \_ (ie: $\_) an anonymous variable or variable block is
 # allocated, so you can do stuff like $_(5)=1,2,3,4,5.
 #
-# #symbol=[value] defines a constant (doesn't allocate memory).
+# #symbol=value defines a constant (doesn't allocate memory).
 #
 # As memory can't be initialized on program load, the assembler automatically
 # creates the code to do any needed initializations and inserts a call to it
@@ -565,6 +567,13 @@ def operation(line: Line) -> Operation:
                 return {'cType': 'E', 'line': line, 'error': f'Variable size (1) does not match number of Values provided ({len(vlist)})'}
             else:
                 return {'cType': 'V', 'symbol': vname, 'expression': '1', 'init': vlist, 'line': line}	    
+        elif '@' in o:
+            vname, vinit = o.split('@', 1)
+            vlist = vinit.split(',')
+            if len(vlist) != 1:
+                return {'cType': 'E', 'line': line, 'error': f'Variable alias can only one initializer value'}
+            else:
+                return {'cType': 'V', 'symbol': vname, 'expression': vlist[0], 'alias': True, 'line': line}	    
 
         else:
             return {'cType': 'V', 'symbol': o, 'expression': '1', 'line': line}
@@ -898,7 +907,7 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
         print()
         print('Pass 2')
     
-    # Symbol table pass 2, handle the # defines.
+    # Symbol table pass 2, handle the # and $ defines.
 
     ram = 16    # Locations 0-15 are reserved, so 16 is the first available
 
@@ -926,15 +935,18 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                     except Exception as ex:
                         o['error'] = str(ex)
                         cv = 1
-                    if ct == 'D':
+                    if ct == 'D':           # Constant
                         symbols[sym] = cv
                         declared_values.append(sym)
-                    else:
-                        symbols[sym] = ram
-                        ram = ram + cv
+                    else:                   # Variable
+                        if 'alias' in o:    # Alias to existing variable
+                            symbols[sym] = cv
+                        else:
+                            symbols[sym] = ram
+                            ram = ram + cv
+                            if ram > MAXRAM:
+                                o['error'] = 'Out of RAM (data) memory.'
                         declared_variables.append(sym)
-                        if ram > MAXRAM:
-                            o['error'] = 'Out of RAM (data) memory.'
                     ucase_symbols.append(sym.upper())
 
     if DEBUG:
