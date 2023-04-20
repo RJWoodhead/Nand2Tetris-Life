@@ -989,35 +989,43 @@ $Toggle.Cell		// Local variable
 (Generation)
 (G)
 
-$G.Cell						// Address of current cell
+$G.Cell							// Address of current cell
 
-	// Phase 1: for each living cell (not counting the guard cells), increment all
-	// the neighbors, so they have a count of how many neighbors they have. Note that
-	// we can plow through all the guard cells on left and right because they will
-	// always be dead, and it's faster to do this than do a double-loop with skip.
-
-	@Board+BOARD_FIRST_CELL	// G.Cell = Address of the first real cell.
+	@Board+BOARD_FIRST_CELL-1	// G.Cell = Address prior to the first real cell.
 	D = A
 	@G.Cell
 	M = D
 
-(G.1.Top) 					// repeat check_cell until we hit the special end-of-board cell.
+// Phase 1: for each living cell (not counting the guard cells), increment all
+// the neighbors, so they have a count of how many neighbors they have. Note that
+// we can plow through all the guard cells on left and right because they will
+// always be dead, and it's faster to do this than do a double-loop with skip.
+// Furthermore, we use a jump table to implement a case statement that handles
+// all the possible cell values (dead (0-15), live (16-31), or end-mark (-1)).
+// Finally, we can merge the load cell value code with the move to next cell
+// code to save instructions.
 
-	// Simple check for dead cell ([G.Cell] & ALIVE == 0) is constant 7 instructions.
-	// Short-circuit check is 5 instructions if [G.Cell] is 0, 9 if not.
+$G.1.Case(33) = G.2, \		// Jump table for decoding value of cell.
+	G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, \
+	G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, \
+	G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, \
+	G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live
 
-	@G.Cell					// D = [G.Cell]
-	A = M
+(G.1.Next) 					// repeat check_cell until we hit the special end-of-board cell.
+
+	@G.Cell					// D = [++G.Cell]
+	AM = M + 1
 	D = M
 
-	@G.1.Bottom				// Short-circuit quick test for 0 (most likely case).
+	@G.1.Next				// Shortcut for the most common case (Cell = 0)
 	D ; JEQ
 
-	@ALIVE
-	D = D & A
+	@G.1.Case+1				// Index value into jump table (-1 value = end of board).
+	A = A + D
+	A = M 					// Load jump target from the table.
+	0 ; JMP					// And we either loop, update neighbors, or quit.
 
-	@G.1.Bottom
-	D ; JEQ
+(G.1.Live)					// If a live cell, we must update neighbors.
 
 	@G.Cell 				// A=[G.Cell]-(BOARD_COLS+3) (top-left neighbor).
 	D = M
@@ -1051,28 +1059,10 @@ $G.Cell						// Address of current cell
 	A = A + 1 				// [++A]++ (bottom-right neighbor).
 	M = M + 1
 
-(G.1.Bottom)
+	@G.1.Next				// And continue loop
+	0 ; JMP
 
-	// Optimization to speed up the loop. Normally we would just check to see if G.Cell has
-	// passed the last actual cell in the board. This takes 6 instructions as follows:
-	//
-	//  @G.Cell 					// D,G.Cell = G.Cell + 1
-	//  MD = M + 1
-	//	@Board+BOARD_LAST_CELL+1 	// if (G.Cell != First Guard Cell after board) goto G.1.Top
-	//	D = D - A
-	//	@G.1.Top
-	//	D ; JNE
-	//
-	// However, by having a cell with an impossible but easy-to-test value (-1), we can shave
-	// off one instruction, at the cost of running the loop for BOARD_COLS+2 extra iterations.
-	// Each iteration is 10 instructions, so it's a win if there are more than 10 rows in our
-	// board, which there certainly are!
-
-	@G.Cell 					// A,G.Cell = G.Cell + 1
-	AM = M + 1
-	D = M + 1					// if the special guard cell is -1, then D will now be 0
-	@G.1.Top					// so if D != 0, we are not done.
-	D ; JNE
+(G.2)
 
 	// Phase 2: add the counts in the guard cells to their respective border cells
 	// on the opposite edge, and clear the guard cells. Here is a map of the guard
@@ -3416,233 +3406,54 @@ $G.Cell						// Address of current cell
 	@Board+8321
 	M = M + D
 
-	// Phase 3: use the previous generation state and the count of neighbors to update
-	// the cells.
+// Phase 3: use the previous generation state and the count of neighbors to update
+// the cells. As with a previous phase, we use a jump table to implement a case
+// statement.
 
 	@Board+BOARD_FIRST_CELL-1 // G.Cell = cell BEFORE the first possible active cell.
 	D = A
 	@G.Cell
 	M = D
 	
-(G.3.Top) 			// Repeat until we hit our special guard cell (value = -1)
+$G.3.Case(33) = Paint_Board, \		// Jump table for updating value of cell.
+	G.3.Next, G.3.Dead, G.3.Dead, G.3.Live, G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, \
+	G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, \
+	G.3.Dead, G.3.Dead, G.3.Live, G.3.Live, G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, \
+	G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead, G.3.Dead
 
-	@G.Cell			// Do a short-circuit check for ++[G.Cell] = 0. In this instance
-	AM = M + 1 		// we know the new value is also 0, so we don't need to update
-	D = M			// it, and can fall through to checking the next cell. We can
-	@G.3.Update		// unroll this check as many times as we want to avoid loop
-	D ; JNE			// overhead.
+(G.3.Next) 			// Repeat until we hit our special guard cell (value = -1)
 
-	@G.Cell			// Lather, rinse and repeat.
+	@G.Cell			// D = [++G.Cell]
 	AM = M + 1
 	D = M
-	@G.3.Update
-	D ; JNE
 
-	@G.Cell			// Lather, rinse and repeat.
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
+	@G.3.Next		// Shortcut check for the most likely case (0 cell)
+	D ; JEQ
 
-	@G.Cell			// Lather, rinse and repeat.
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
+	@G.3.Case+1		// Index value into jump table (-1 value = end of board).
+	A = A + D
+	A = M 			// Load jump target from the table.
+	0 ; JMP			// And we either loop, update neighbors, or quit.
 
-	@G.Cell			// Lather, rinse and repeat.
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
+(G.3.Dead)
 
-	@G.Cell			// Lather, rinse and repeat.
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
+	@G.Cell			// [G.Cell] = 0
+	A = M
+	M = 0
 
-	@G.Cell			// Lather, rinse and repeat.
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
+	@G.3.Next		// And loop.
+	0 ; JMP
 
-	@G.Cell			// Lather, rinse and repeat.
-	AM = M + 1		// OK, you get the idea.
-	D = M
-	@G.3.Update
-	D ; JNE
+(G.3.Live)
 
+	@ALIVE			// [G.Cell] = ALIVE
+	D = A
 	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
+	A = M
+	M = D
 
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.Cell
-	AM = M + 1
-	D = M
-	@G.3.Update
-	D ; JNE
-
-	@G.3.Top		// At end of unroll, we loop back up and continue
-	0 ; JMP			// to try and short-circuit.
-
-// Next Generation update table converts a previous status + neighbor count into a new status.
-// It starts with END_M (-1) because of a cute little optimization that saves us some checking 
-// on the offset loop.
-
-$G.NextGen(33) = END_M, \
-	DEAD, DEAD, DEAD,ALIVE, DEAD, DEAD, DEAD, DEAD, \
-	DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, \
-	DEAD, DEAD,ALIVE,ALIVE, DEAD, DEAD, DEAD, DEAD, \
-	DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD, DEAD
-
-(G.3.Update)
-
-	@G.NextGen+1	// G.NextGen starts with a -1 value followed by all the
-	A = A + D 		// actual new cell values, so we will either get the new
-	D = M			// cell value or -1 if we are at the end of the board.
-
-	@G.Cell			// We then update [G.Cell] to the new value, which means
-	A = M			// that the end of board cell will get set to -1 which
-	M = D			// is what it always needs to be AND the new cell value
-					// will still be in D. If this value is >= 0, then we
-	@G.3.Top		// are not done processing the cells, and should continue
-	D ; JGE			// looping. Otherwise we fall through to Paint_Board()
+	@G.3.Next		// And loop.
+	0 ; JMP
 
 // Paint_Board (PB) function; paints the current board onto the screen.
 
