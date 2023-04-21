@@ -1075,8 +1075,24 @@ $G.1.Case(33) = G.2, \		// Jump table for decoding value of cell.
 	AD = A + 1 				// [++AD]++ (bottom-right neighbor).
 	M = M + 1
 
-	@G.1.Next				// And continue loop.
-	0 ; JMP
+// Whenever we have a loop that ends with a case statement, we can place a copy
+// of the pre-case code at the end of each of the case branches, thus avoiding
+// a jump back to the top of the loop. I refer to this optimization as
+// Code Inception. In this case, there's only one case option that isn't either
+// an exit or a jump back to the top of the loop, but this optimization saves
+// us 2 instructions per live cell.
+
+	@G.Cell					// D = [++G.Cell]
+	AM = M + 1
+	D = M
+
+	@G.1.Next				// Shortcut for the most common case (Cell = 0)
+	D ; JEQ
+
+	@G.1.Case+1				// Index value into jump table (-1 value = end of board).
+	A = A + D
+	A = M 					// Load jump target from the table.
+	0 ; JMP					// And we either loop, update neighbors, or quit.
 
 (G.2)
 
@@ -3424,7 +3440,7 @@ $G.1.Case(33) = G.2, \		// Jump table for decoding value of cell.
 
 // Phase 3: use the previous generation state and the count of neighbors to update
 // the cells. As with a previous phase, we use a jump table to implement a case
-// statement.
+// statement. As with phase 1, we can use code inception to save a few instructions.
 
 	@Board+BOARD_FIRST_CELL-1 // G.Cell = cell BEFORE the first possible active cell.
 	D = A
@@ -3457,9 +3473,7 @@ $G.3.Case(33) = Paint_Board, \		// Jump table for updating value of cell.
 	A = M
 	M = 0
 
-// Another tiny optimization. Instead of jumping back to G.3.Next to process the
-// next cell, we duplicate the code here and save 2 instructions. It's sort of
-// a code inception!
+// Code Inception...
 
 	@G.Cell			// D = [++G.Cell]
 	AM = M + 1
@@ -3481,7 +3495,7 @@ $G.3.Case(33) = Paint_Board, \		// Jump table for updating value of cell.
 	A = M
 	M = D
 
-// Same code inception here.
+// Code Inception...
 
 	@G.Cell			// D = [++G.Cell]
 	AM = M + 1
@@ -3568,10 +3582,6 @@ $PBR.Quad				// Quad cell paint loop count.
 // Paint_Board_Quad(): paint a quad of cells [PB.Cell] ... [PB.Cell+3] onto the screen at word
 // [PB.Screen]. Repeat for 4 screen rows, then update PB.Cell and PB.Screen for the next
 // iteration.
-//
-// This code is executed so much that all sorts of optimizations are warranted, including
-// inserting it here as an inlined function call to avoid the call-return overhead. This
-// sucks a bit for readability.
 
 (Paint_Board_Quad)
 (PBQ)
