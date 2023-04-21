@@ -3551,41 +3551,13 @@ $PB.Row   			// Current row in board.
 	@PB.Row
 	M = D
 
-// Note to self: we can inline this call to @Paint_Board_Row  **TODO**
-
 (PB.forRow) 				// Repeat Paint_Board_Row() while (--PB.Row > 0)
-
-	@PB.forRow.Ret 			// D = Paint_Board_Row return address.
-	D = A
-
-	@SP 					// [SP--] = D (PUSH)
-	A = M
-	M = D
-	@SP
-	M = M - 1
-
-	@Paint_Board_Row 		// Paint_Board_Row()
-	0 ; JMP
-
-(PB.forRow.Ret)
-
-	@PB.Row 				// PB.Row,D = PB.Row - 1
-	MD = M - 1
-	
-	@PB.forRow 				// Loop if PB.Row > 0
-	D ; JGT
-
-// Return to caller.
-
-	@SP 					// Jump to [++SP]
-	AM = M + 1
-	A = M
-	0 ; JMP
 
 // Paint_Board_Row(): Paint a single row (128 cells) onto the screen. We use an 4x4 matrix of pixels
 // for each cell, so four cells fit into each word of pixels (16 pixels/word), and each row is
 // replicated 4 times. On exit, PB.Screen.0 points to the first word of pixels for the next row of
-// cells, and PB.Cell points to the first cell of the next row.
+// cells, and PB.Cell points to the first cell of the next row. Inlined to remove function call
+// overhead.
 
 (Paint_Board_Row)
 (PBR)
@@ -3726,9 +3698,17 @@ $PBQ.Blocks(256) = \
 	@PB.Screen.3
 	M = M + D
 
+// End of inlined Paint_Board_Row()
+
+	@PB.Row 				// PB.Row,D = PB.Row - 1
+	MD = M - 1
+	
+	@PB.forRow 				// Loop if PB.Row > 0
+	D ; JGT
+
 // Return to caller.
 
-	@SP 				// Jump to [++SP]
+	@SP 					// Jump to [++SP]
 	AM = M + 1
 	A = M
 	0 ; JMP
