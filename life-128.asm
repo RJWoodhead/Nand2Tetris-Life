@@ -3518,6 +3518,7 @@ $PB.Screen.0		// Pointer to current screen word (row 0)
 $PB.Screen.1		// We keep pointers to all 4 rows used
 $PB.Screen.2		// when painting a cell in order to
 $PB.Screen.3		// implement an efficiency hack.
+$PB.Cell			// Current cell being processed.
 $PB.Row   			// Current row in board.
 
 	@SCREEN-1 							// PB.Screen.0 = Address of screen-1.
@@ -3606,8 +3607,6 @@ $PBR.Quad				// Quad cell paint loop count.
 
 (Paint_Board_Quad)
 (PBQ)
-
-$PBQ.Pixels				// Pixel representation of assembled group of 4 cells
 
 // Conversion table for creating screen cell blocks. Since our ALIVE value is 0x0010 and each
 // screen word contains 4 cells, we can shift and combine 4 cell values into a single value with
