@@ -1017,6 +1017,15 @@ $G.1.Case(33) = G.2, \		// Jump table for decoding value of cell.
 	AM = M + 1
 	D = M
 
+// Much of the time, the cell value will be 0; any dead cell not adjacent to a live
+// cell will never get incremented. We can do a check for this common case and jump
+// directly to checking the next cell at a cost of 2 instructions. Since the most
+// general path is 4 instructions, this is a win if non-neighbor dead cells are
+// more than 50% of the board (we will save 2 instructions when we hit and pay
+// 2 instructions when we miss, so we need more hits than misses to make it
+// a good trade). On a typical life-board, 80%+ of the board will be non-neighbor
+// dead cells, so it's a worthwhile optimization.
+
 	@G.1.Next				// Shortcut for the most common case (Cell = 0)
 	D ; JEQ
 
@@ -1025,41 +1034,48 @@ $G.1.Case(33) = G.2, \		// Jump table for decoding value of cell.
 	A = M 					// Load jump target from the table.
 	0 ; JMP					// And we either loop, update neighbors, or quit.
 
-(G.1.Live)					// If a live cell, we must update neighbors.
+(G.1.Live)					// If a live cell, we must increment neighbors.
+
+// In the increment neighbor path, there is another subtle optimization that we
+// can do to shave a few instructions. Since we can directly increment the cells
+// themselves, the D-register is not needed after we compute the first neighbor
+// address. We can thus take advantage of the HACK machine's ability to store
+// results in multiple registers to save a copy of the address in D as well as
+// A when we update it, which reduces the cost of moving to the next row by
+// one instruction, for a total of two instructions per live cell on the board.
 
 	@G.Cell 				// A=[G.Cell]-(BOARD_COLS+3) (top-left neighbor).
 	D = M
 	@BOARD_COLS+3
-	A = D - A
+	AD = D - A				// D has a copy of A; I'll mark this as AD
+	M = M + 1				// [AD]++
+
+	AD = A + 1 				// [++AD]++ (top neighbor).
+	M = M + 1
+
+	AD = A + 1 				// [++AD]++ (top-right neighbor).
+	M = M + 1
+
+	@BOARD_COLS				// AD=D+BOARD_COLS (left neighbor).
+	AD = D + A				// We save an instruction because of the copy of A.
 	M = M + 1				// [A]++
 
-	A = A + 1 				// [++A]++ (top neighbor).
+	AD = A + 1 				// AD=A+2 (right neighbor).
+	AD = A + 1
+	M = M + 1				// [AD]++
+
+	D = A 					
+	@BOARD_COLS				// AD=D+BOARD_COLS (bottom-left neighbor).
+	AD = D + A				// Again we save an instruction. At this point we don't
+	M = M + 1				// need our copy of D, but we'll keep updating it for
+							// clarity since it doesn't cost us anything.
+	AD = A + 1 				// [++AD]++ (bottom neighbor).
 	M = M + 1
 
-	A = A + 1 				// [++A]++ (top-right neighbor).
+	AD = A + 1 				// [++AD]++ (bottom-right neighbor).
 	M = M + 1
 
-	D = A 					// A=A+BOARD_COLS (left neighbor).
-	@BOARD_COLS
-	A = D + A
-	M = M + 1				// [A]++
-
-	A = A + 1 				// A=A+2 (right neighbor).
-	A = A + 1
-	M = M + 1				// [A]++
-
-	D = A 					// A=A+BOARD_COLS (bottom-left neighbor).
-	@BOARD_COLS
-	A = D + A
-	M = M + 1
-
-	A = A + 1 				// [++A]++ (bottom neighbor).
-	M = M + 1
-
-	A = A + 1 				// [++A]++ (bottom-right neighbor).
-	M = M + 1
-
-	@G.1.Next				// And continue loop
+	@G.1.Next				// And continue loop.
 	0 ; JMP
 
 (G.2)
@@ -3428,7 +3444,7 @@ $G.3.Case(33) = Paint_Board, \		// Jump table for updating value of cell.
 	D = M
 
 	@G.3.Next		// Shortcut check for the most likely case (0 cell)
-	D ; JEQ
+	D ; JEQ			// Same optimization case as in phase 1.
 
 	@G.3.Case+1		// Index value into jump table (-1 value = end of board).
 	A = A + D
@@ -3437,12 +3453,25 @@ $G.3.Case(33) = Paint_Board, \		// Jump table for updating value of cell.
 
 (G.3.Dead)
 
-	@G.Cell			// [G.Cell] = 0
+	@G.Cell			// [G.Cell] = DEAD (depends on DEAD being 0)
 	A = M
 	M = 0
 
-	@G.3.Next		// And loop.
-	0 ; JMP
+// Another tiny optimization. Instead of jumping back to G.3.Next to process the
+// next cell, we duplicate the code here and save 2 instructions. It's sort of
+// a code inception!
+
+	@G.Cell			// D = [++G.Cell]
+	AM = M + 1
+	D = M
+
+	@G.3.Next		// Shortcut check for the most likely case (0 cell)
+	D ; JEQ			// Same optimization case as in phase 1.
+
+	@G.3.Case+1		// Index value into jump table (-1 value = end of board).
+	A = A + D
+	A = M 			// Load jump target from the table.
+	0 ; JMP			// And we either loop, update neighbors, or quit.
 
 (G.3.Live)
 
@@ -3452,8 +3481,19 @@ $G.3.Case(33) = Paint_Board, \		// Jump table for updating value of cell.
 	A = M
 	M = D
 
-	@G.3.Next		// And loop.
-	0 ; JMP
+// Same code inception here.
+
+	@G.Cell			// D = [++G.Cell]
+	AM = M + 1
+	D = M
+
+	@G.3.Next		// Shortcut check for the most likely case (0 cell)
+	D ; JEQ			// Same optimization case as in phase 1.
+
+	@G.3.Case+1		// Index value into jump table (-1 value = end of board).
+	A = A + D
+	A = M 			// Load jump target from the table.
+	0 ; JMP			// And we either loop, update neighbors, or quit.
 
 // Paint_Board (PB) function; paints the current board onto the screen.
 
@@ -3543,6 +3583,8 @@ $PBQ.Pixels				// Pixel representation of assembled group of 4 cells
 // a different bit for each cell (0000 0000 abcd 0000) and then use a table to convert this to
 // the screen representation. Each value is duplicated 16 times so we can use the raw value.
 // It'd be nice if HACK had a right-shift instruction but them's the breaks.
+//
+// Actual table is in 0000 0000 bacd 0000 order because of a tiny optimization (see below)
 
 $PBQ.Blocks(256) = \
 	0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, \
@@ -3550,15 +3592,15 @@ $PBQ.Blocks(256) = \
 	0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, 0x0F00, \
 	0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, 0xFF00, \
 
-	0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, \
-	0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, \
-	0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, \
-	0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, \
-
 	0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, 0x000F, \
 	0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, 0xF00F, \
 	0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, 0x0F0F, \
 	0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, 0xFF0F, \
+
+	0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, 0x00F0, \
+	0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, 0xF0F0, \
+	0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, 0x0FF0, \
+	0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, 0xFFF0, \
 
 	0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, 0x00FF, \
 	0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, 0xF0FF, \
@@ -3568,6 +3610,9 @@ $PBQ.Blocks(256) = \
 // Convert a set of 4 cells into a 16-bit pixel representation. Depends on ALIVE being 0x0010.
 // and DEAD being 0x0000. The trick is that we shift and add the cell values to get an 8 bit
 // value 0000 0000 abcd 0000, then do a table lookup to get the pixel representation.
+//
+// Tiny optimization. If we reshuffle the order to 0000 0000 bacd 0000 then we can remove
+// a shift and replace another shift by a double-add.
 
 	D = 0				// Initialize our lookup value.
 
@@ -3575,33 +3620,37 @@ $PBQ.Blocks(256) = \
 	A = M
 
 	D = M 				// D = first cell "a" (0001 0000 or 0000 0000)
-	D = D + M 		    // D = first cell << 1 (0000 0000 00a0 0000)
 
 	@PB.Cell			// A, PB.Cell = ++PB.Cell (address of second cell "b").
 	AM = M + 1
 
-	D = D + M 			// D = 0000 0000 00ab 0000
-	A = D 				// D = D << 1 (0000 0000 0ab0 0000)
+	D = D + M 			// D = 0000 0000 00ba 0000
+	D = D + M 			// (Double-add puts b in the second bit position)
+
+	A = D 				// D = D << 1 (0000 0000 0ba0 0000)
 	D = D + A
 
 	@PB.Cell			// A, PB.Cell = ++PB.Cell (address of third cell "c").
 	AM = M + 1
 
-	D = D + M 			// D = 0000 0000 0abc 0000
-	A = D 				// D = D << 1 (0000 0000 abc0 0000)
+	D = D + M 			// D = 0000 0000 0bac 0000
+	A = D 				// D = D << 1 (0000 0000 bac0 0000)
 	D = D + A
 
 	@PB.Cell			// A, PB.Cell = ++PB.Cell (address of last cell "d").
 	AM = M + 1
 
-	D = D + M 			// D = 0000 0000 abcd 0000
+	D = D + M 			// D = 0000 0000 bacd 0000
 
 	@PBQ.Blocks			// D = PBQ.Blocks[D] converts to pixel representation.
 	A = A + D
 	D = M
 
 // Paint the pixels in D into 4 successive rows of the screen.
-// Loop is unrolled for efficiency.
+// Loop is unrolled for efficiency. Optimization note: if we had
+// a different version for each possible PBQ.Pixels value, it would
+// not help because it would still take 2 instructions to get it
+// into the D-register. :(
 
 (PBQ.Paint)
 
