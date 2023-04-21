@@ -3514,24 +3514,43 @@ $G.3.Case(33) = Paint_Board, \		// Jump table for updating value of cell.
 (Paint_Board)
 (PB)
 
-$PB.Screen			// Pointer to current screen word.
-$PB.Cell  			// Current cell in board.
+$PB.Screen.0		// Pointer to current screen word (row 0)
+$PB.Screen.1		// We keep pointers to all 4 rows used
+$PB.Screen.2		// when painting a cell in order to
+$PB.Screen.3		// implement an efficiency hack.
 $PB.Row   			// Current row in board.
 
-	@SCREEN 				// PB.Screen = Address of screen.
-	D = A
-	@PB.Screen
+	@SCREEN-1 							// PB.Screen.0 = Address of screen-1.
+	D = A								// We will pre-increment these pointers
+	@PB.Screen.0						// when used to save an instruction.
 	M = D
 
-	@Board+BOARD_FIRST_CELL // PB.Cell = First real cell of the board
+	@SCREEN+SCREEN_WORDS_PER_ROW-1 		// PB.Screen.1 = next row down.
 	D = A
-	@PB.Cell
+	@PB.Screen.1
+	M = D
+
+	@SCREEN+(SCREEN_WORDS_PER_ROW*2)-1	// PB.Screen.2 = next row down.
+	D = A								// Need to use parens because the
+	@PB.Screen.2						// assembler doesn't understand
+	M = D								// operator precedence.
+
+	@SCREEN+(SCREEN_WORDS_PER_ROW*3)-1	// PB.Screen.3 = last of 4 rows.
+	D = A
+	@PB.Screen.3
+	M = D
+
+	@Board+BOARD_FIRST_CELL-1 	// PB.Cell = First real cell of the board
+	D = A						// -1 because we are going to preincrement
+	@PB.Cell					// it every time we read from it.
 	M = D
 
 	@BOARD_ROWS 			// PB.Row = 64 (number of rows we need to paint).
 	D = A
 	@PB.Row
 	M = D
+
+// Note to self: we can inline this call to @Paint_Board_Row  **TODO**
 
 (PB.forRow) 				// Repeat Paint_Board_Row() while (--PB.Row > 0)
 
@@ -3564,13 +3583,15 @@ $PB.Row   			// Current row in board.
 
 // Paint_Board_Row(): Paint a single row (128 cells) onto the screen. We use an 4x4 matrix of pixels
 // for each cell, so four cells fit into each word of pixels (16 pixels/word), and each row is
-// replicated 4 times. On exit, PB.Screen points to the first word of pixels for the next row of
+// replicated 4 times. On exit, PB.Screen.0 points to the first word of pixels for the next row of
 // cells, and PB.Cell points to the first cell of the next row.
 
 (Paint_Board_Row)
 (PBR)
 
 $PBR.Quad				// Quad cell paint loop count.
+
+// Note to self: This loop could be unrolled.  **TODO**
 
 	@BOARD_COLS/4 		// PBR.Quad = 32 (number of quads of cells we need to paint).
 	D = A
@@ -3626,8 +3647,8 @@ $PBQ.Blocks(256) = \
 
 	D = 0				// Initialize our lookup value.
 
-	@PB.Cell			// A = PB.Cell (address of first cell).
-	A = M
+	@PB.Cell			// A, PB.Cell = ++PB.Cell (address of first cell).
+	AM = M + 1			// This lets us get value and move to next cell at same time.
 
 	D = M 				// D = first cell "a" (0001 0000 or 0000 0000)
 
@@ -3657,71 +3678,31 @@ $PBQ.Blocks(256) = \
 	D = M
 
 // Paint the pixels in D into 4 successive rows of the screen.
-// Loop is unrolled for efficiency. Optimization note: if we had
-// a different version for each possible PBQ.Pixels value, it would
-// not help because it would still take 2 instructions to get it
-// into the D-register. :(
+// Loop is unrolled for efficiency.
 
 (PBQ.Paint)
 
-	@PBQ.Pixels 		// Save our pixels
+	@PB.Screen.0 		// AM = ++PB.Screen.0 (location of first screen word to bash).
+	AM = M + 1			// Combines getting pointer and incrementing it.
+	M = D 				// Save the pixels
+
+	@PB.Screen.1		// Repeat for the other 4 rows.
+	AM = M + 1
 	M = D
 
-	@PB.Screen 			// A = PB.Screen (location of first screen word to bash).
-	A = M
-
-	M = D 				// [PB.Screen] = PBQ.Pixels (still in D) -- row 0
-
-	D = A 				// PB.Screen = PB.Screen + 32
-	@SCREEN_WORDS_PER_ROW
-	D = D + A
-	@PB.Screen
+	@PB.Screen.2
+	AM = M + 1
 	M = D
 
-	@PBQ.Pixels 		// [PB.Screen] = PBQ.Pixels -- row 1.
-	D = M
-	@PB.Screen
-	A = M
+	@PB.Screen.3
+	AM = M + 1
 	M = D
 
-	D = A 				// PB.Screen = PB.Screen + 32
-	@SCREEN_WORDS_PER_ROW
-	D = D + A
-	@PB.Screen
-	M = D
-
-	@PBQ.Pixels 		// [PB.Screen] = PBQ.Pixels -- row 2.
-	D = M
-	@PB.Screen
-	A = M
-	M = D
-
-	D = A 				// PB.Screen = PB.Screen + 32
-	@SCREEN_WORDS_PER_ROW
-	D = D + A
-	@PB.Screen
-	M = D
-
-	@PBQ.Pixels 		// [PB.Screen] = PBQ.Pixels -- row 3.
-	D = M
-	@PB.Screen
-	A = M
-	M = D
-
-// PB.Screen now contains an address in the 4th row. We need to go back to
-// the first row, then move forward to the next word. Since we moved 3 x 32
-// words, we simply subtract (3*32)-1. Similarly, we need to increment
-// PB.Cell to move to the first cell of the next pair.
+// PB.Screen.0-3 are now correctly set up for painting the next quad in the row,
+// as is PB.Cell, so all we need to do is decrement our loop counter and
+// repeat.
 
 (PBQ.NextQuad)
-
-	@95 				// PB.Screen = PB.Screen - 95
-	D = A
-	@PB.Screen
-	M = M - D
-
-	@PB.Cell
-	M = M + 1
 
 	@PBR.Quad 			// PB.pair,D = PB.pair - 1
 	MD = M - 1
@@ -3731,13 +3712,19 @@ $PBQ.Blocks(256) = \
 
 // Update PB.Cell and PB.Screen so they are correct for the next iteration.
 
-	@PB.Cell 			// PB.Cell = PB.Cell + 2 (skips border cells).
+	@PB.Cell 				// PB.Cell = PB.Cell + 2 (skips border cells).
 	M = M + 1
 	M = M + 1
 
-	@96 				// PB.Screen = PB.Screen + 32 * 3 (skips 3 pixel rows).
-	D = A
-	@PB.Screen
+	@SCREEN_WORDS_PER_ROW*3 // PB.Screen.0-3 = PB.Screen.0-3 + SCREEN_WORDS_PER_ROW*3
+	D = A					// It's *3 instead of *4 because we've already incremented
+	@PB.Screen.0			// the pointers all the way along one row of the screen
+	M = M + D				// buffer.
+	@PB.Screen.1
+	M = M + D
+	@PB.Screen.2
+	M = M + D
+	@PB.Screen.3
 	M = M + D
 
 // Return to caller.
