@@ -25,7 +25,27 @@
 //
 // The original version of the program used the high (sign) bit to store the cell state because it was easier to
 // check the status of the cell. However, restructuring the cell data in this way permits a tradeoff that makes
-// the first pass slightly slower but speeds up the second pass and the screen update.
+// the first pass slightly slower but significantly speeds up the second pass and the screen update.
+//
+// There are a lot of insane assembly-language hacks in this code for speed reasons, some of which are HACK-specific
+// and some of which are more broadly applicable. The bigger ones include:
+//
+// * Abusing HACK's ability to store ALU results in multiple registers.
+// * Eliminating loop counters by using special data values as end-of-loop markers.
+// * Short-circuit checking for the most common case.
+// * Loop unrolling.
+// * Table lookups.
+// * Using jump tables to implement case statements (and using those to implement complex conditional expressions).
+// * When you have a loop that ends in a case statement, the case options end with the head of the loop to eliminate
+//   the need to jump back to the head of the loop ("Code Inception").
+// * Inlined function calls.
+// * Function chaining (if the last thing A does is call B, just jump to B and return to A's caller from B).
+// * Using external scripts to autogenerate code.
+// * Having multiple offset versions of a pointer to reduce the cost of incrementing the pointer (because it lets
+//   us increment them mostly by 1, which is less expensive on HACK).
+// 
+// Note that I'm only getting seriously evil on the two critical-path functions, Generation() and Paint_Board(),
+// since they are the only ones that affect percieved speed.
 //
 // Keyboard commands:
 //
@@ -1063,7 +1083,7 @@ $G.1.Case(35) = G.2, G.2, G.2, \		// Jump table for decoding value of cell.
 
 	@BOARD_COLS				// AD=D+BOARD_COLS (left neighbor).
 	AD = D + A				// We save an instruction because of the copy of A.
-	M = M + 1				// [A]++
+	M = M + 1				// [AD]++
 
 	AD = A + 1 				// AD=A+2 (right neighbor).
 	AD = A + 1
