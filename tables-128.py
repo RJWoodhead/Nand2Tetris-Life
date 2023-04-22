@@ -41,7 +41,21 @@ if __name__ == '__main__':
 
 	for i in range(1,65):
 		wrap(0+130*i,128+130*i)
-		wrap(129+130*i,1+130*i)
+		if i != 64:
+			wrap(129+130*i,1+130*i)
+
+	# Cell 8449 is the temporary guard cell, so it requires special handling.
+
+	print('// This is the cell we set to the End-of-board mark.')
+	print('')
+	print('\t@Board+8449')
+	print('\tD = M')
+	print('\tM = -1\t\t\t// Mark this cell as the end-of-board (for Phase 3)')
+	print('\t@3\t\t\t\t// Since it started at -3, we need to add 3')
+	print('\tD = D + A\t\t// to get the actual neighbor count.')
+	print('\t@Board+8321')
+	print('\tM = M + D')
+	print('')
 
 	print('# Row Offset Table into Board (manually wrap this in assembler file)')
 	print('')

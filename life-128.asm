@@ -79,18 +79,15 @@
 
 #ALIVE=0x0010											// Cell status is alive.
 #DEAD =0x0000											// Cell status is dead.
-#END_M=-1												// Special end-of-board mark.
 
-// Board data storage.
+// Board data storage. Immediately after the board we have a guard variable that contains -1,
+// which is a flag that we can use to quickly determine if we're done processing the board.
+// Currently this is only used in the Clear_Board() function. In Generation() and Paint_Board(),
+// we set a temporary end mark in $Board+BOARD_LAST_CELL+1, which is the first guard cell after
+// the last board cell, in order to avoid having to process the last row of guard cells.
 
 $Board(BOARD_SIZE)
-
-// Special value that lets us know we've reached the end of the board data. -1 is a value that can
-// never be in the board data, and it's easy to test. If we ever loop through the board and get to
-// this cell, we know we're done. It is slightly faster to check this than check to see if the
-// loop counter has reached the end mark. More details in the actual code.
-
-$BoardEndMark=END_M
+$Board_End_Mark=-1
 
 // Since only R0 is used (for SP), R1-R15 can be reallocated to save a little ram space. In this
 // program, R1-R15 are used as scratchpad temp variables that are not preserved over function
@@ -1002,14 +999,22 @@ $G.Cell							// Address of current cell
 // always be dead, and it's faster to do this than do a double-loop with skip.
 // Furthermore, we use a jump table to implement a case statement that handles
 // all the possible cell values (dead (0-15), live (16-31), or end-mark (-1)).
-// Finally, we can merge the load cell value code with the move to next cell
-// code to save instructions.
+// Next, we can merge the load cell value code with the move to next cell
+// code to save instructions. And finally, we can set the cell after the last
+// actual board cell (+8449) to -3; since this cell only has two neighbor cells
+// on the board, it will only ever get incremented to -1, so it can serve as
+// the end-of-board mark.
 
-$G.1.Case(33) = G.2, \		// Jump table for decoding value of cell.
+$G.1.Case(35) = G.2, G.2, G.2, \		// Jump table for decoding value of cell.
 	G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, \
 	G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, G.1.Next, \
 	G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, \
 	G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live, G.1.Live
+
+	@2						// Set temp end-of-board mark to -3 (!2)
+	D = A
+	@Board+BOARD_LAST_CELL+1
+	M = !D 						
 
 (G.1.Next) 					// repeat check_cell until we hit the special end-of-board cell.
 
@@ -1029,7 +1034,7 @@ $G.1.Case(33) = G.2, \		// Jump table for decoding value of cell.
 	@G.1.Next				// Shortcut for the most common case (Cell = 0)
 	D ; JEQ
 
-	@G.1.Case+1				// Index value into jump table (-1 value = end of board).
+	@G.1.Case+3				// Index value into jump table (<0 value = end of board).
 	A = A + D
 	A = M 					// Load jump target from the table.
 	0 ; JMP					// And we either loop, update neighbors, or quit.
@@ -1089,7 +1094,7 @@ $G.1.Case(33) = G.2, \		// Jump table for decoding value of cell.
 	@G.1.Next				// Shortcut for the most common case (Cell = 0)
 	D ; JEQ
 
-	@G.1.Case+1				// Index value into jump table (-1 value = end of board).
+	@G.1.Case+3				// Index value into jump table (-1 value = end of board).
 	A = A + D
 	A = M 					// Load jump target from the table.
 	0 ; JMP					// And we either loop, update neighbors, or quit.
@@ -1111,11 +1116,10 @@ $G.1.Case(33) = G.2, \		// Jump table for decoding value of cell.
 	// unrolling the loops is a big win because we don't have to do address arithmetic.
 	//
 	// Note: we get a bit tricky when processing cell 8449, which is the first guard
-	// cell after the actual board. Instead of setting it to 0, we set it to -1,
-	// the end-of-board mark. This means we won't process the last row of guard cells,
-	// which will always be 0 anyway. However, we have to fix this cell at the end
-	// of Phase 3. Because Phase 3 jumps directly to Paint_Board(), we actually fix it
-	// in Paint_Board().
+	// cell after the actual board. Since we set it to -3 before doing phase 1, we
+	// need to add 3 to it to get the actual number of neighbors. Also, instead of
+	// setting it to 0, we set it to -1 so it can serve as the end-of-board mark for
+	// Phase 3.
 
 	@Board+0
 	D = M
@@ -3439,17 +3443,20 @@ $G.1.Case(33) = G.2, \		// Jump table for decoding value of cell.
 	@Board+8448
 	M = M + D
 
-	// This is the cell we set to being a temporary End-of-board mark.
+	// This is the cell we set to the End-of-board mark.
 
 	@Board+8449
 	D = M
-	M = -1			// Depends on END_M being -1.
+	M = -1			// Mark this cell as the end-of-board (for Phase 3)
+	@3				// Since it started at -3, we need to add 3
+	D = D + A 		// to get the actual neighbor count.
 	@Board+8321
 	M = M + D
 
 // Phase 3: use the previous generation state and the count of neighbors to update
 // the cells. As with a previous phase, we use a jump table to implement a case
 // statement. As with phase 1, we can use code inception to save a few instructions.
+// And since we set @Board+8449 to -1, it will trigger a jump to Paint_Board()
 
 	@Board+BOARD_FIRST_CELL-1 // G.Cell = cell BEFORE the first possible active cell.
 	D = A
@@ -3529,9 +3536,6 @@ $PB.Screen.2		// when painting a cell in order to
 $PB.Screen.3		// implement an efficiency hack.
 $PB.Cell			// Current cell being processed.
 $PB.Row   			// Current row in board.
-
-	@Board+BOARD_LAST_CELL+1			// Reset the temporary End-of-board mark
-	M=0									// set by Generation() phase 3 code.
 
 	@SCREEN-1 							// PB.Screen.0 = Address of screen-1.
 	D = A								// We will pre-increment these pointers
@@ -5608,6 +5612,9 @@ $CB.Word			// Current word being cleared.
 	@CB.Word
 	M = D
 
+	@Board+BOARD_LAST_CELL+1	// We will probably have an end-of-board mark in
+	M = 0						// a guard cell, so zap it.
+
 (CB.Top)			// While [++CB.Word] != -1
 
 	@CB.Word		// ++CB.Word
@@ -5617,8 +5624,8 @@ $CB.Word			// Current word being cleared.
 	@CB.Top			// Loop if the value we just zapped was not -1.
 	D ; JGE
 
-	@BoardEndMark	// Fix up the end of board mark.
-	M = -1			// Assumes END_M = -1.
+	@Board_End_Mark	// Fix up the end of board mark.
+	M = -1
 
 // Return to caller.
 
