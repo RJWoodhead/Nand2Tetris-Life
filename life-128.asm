@@ -1111,8 +1111,9 @@ $G.1.Case(35) = G.2, G.2, G.2, \		// Jump table for decoding value of cell.
 	AM = M + 1
 	D = M
 
-	@G.1.Next				// Shortcut for the most common case (Cell = 0)
-	D ; JEQ
+// Since the previous cell was a live cell, the current cell will always be
+// non-zero, since it'll have been incremented at least once. So we don't
+// need to check for the shortcut case.
 
 	@G.1.Case+3				// Index value into jump table (-1 value = end of board).
 	A = A + D
@@ -3496,7 +3497,7 @@ $G.3.Case(33) = Paint_Board, \		// Jump table for updating value of cell.
 	D = M
 
 	@G.3.Next		// Shortcut check for the most likely case (0 cell)
-	D ; JEQ			// Same optimization case as in phase 1.
+	D ; JEQ			// Most cells on the screen are dead.
 
 	@G.3.Case+1		// Index value into jump table (-1 value = end of board).
 	A = A + D
@@ -3516,7 +3517,7 @@ $G.3.Case(33) = Paint_Board, \		// Jump table for updating value of cell.
 	D = M
 
 	@G.3.Next		// Shortcut check for the most likely case (0 cell)
-	D ; JEQ			// Same optimization case as in phase 1.
+	D ; JEQ			// Dead cells are likely to be followed by dead cells.
 
 	@G.3.Case+1		// Index value into jump table (-1 value = end of board).
 	A = A + D
@@ -3537,8 +3538,9 @@ $G.3.Case(33) = Paint_Board, \		// Jump table for updating value of cell.
 	AM = M + 1
 	D = M
 
-	@G.3.Next		// Shortcut check for the most likely case (0 cell)
-	D ; JEQ			// Same optimization case as in phase 1.
+// Live cells are much more likely to be followed by another live cell, so
+// in this particular case, we omit the shortcut check for a dead cell.
+// TBH it is hard to tell which way is the win.
 
 	@G.3.Case+1		// Index value into jump table (-1 value = end of board).
 	A = A + D
