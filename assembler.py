@@ -1037,9 +1037,8 @@ def avengers_assemble(fname: str, print_symbol_table: bool):
                         initops.append({'cType': 'A', 'expression': f'{val}', 'line': (line_number, f'@{val}')})
                         initops.append({'cType': 'C', 'dest': 'D', 'comp': 'A', 'jump': 'NULL', 'line': (line_number, f'D=A // INIT to 15-bit value ({val})')})
                     else:                           # 16-bit Values
-                        initops.append({'cType': 'C', 'dest': 'D', 'comp': '-1', 'jump': 'NULL', 'line': (line_number, f'D=-1 // INIT to 16-bit value ({val})')})
-                        initops.append({'cType': 'A', 'expression': f'{65535-val}', 'line': (line_number, f'@{65535-val}')})
-                        initops.append({'cType': 'C', 'dest': 'D', 'comp': 'D-A', 'jump': 'NULL', 'line': (line_number, 'D=D-A')})
+                        initops.append({'cType': 'A', 'expression': f'{(~val) & 0xFFFF}', 'line': (line_number, f'@{(~val) & 0xFFFF}')})
+                        initops.append({'cType': 'C', 'dest': 'D', 'comp': '!A', 'jump': 'NULL', 'line': (line_number, 'D=!A // INIT to 16-bit value ({val})')})
 
                 # Store D into correct location
 
